@@ -770,6 +770,7 @@ with_tclsh
 enable_rubyinterp
 with_ruby_command
 enable_cscope
+enable_async
 enable_workshop
 enable_netbeans
 enable_sniff
@@ -1425,6 +1426,7 @@ Optional Features:
   --disable-selinux	  Don't check for SELinux support.
   --disable-xsmp          Disable XSMP session management
   --disable-xsmp-interact Disable XSMP interaction
+  --enable-async          Include async system() interface.
   --enable-luainterp=OPTS     Include Lua interpreter.  default=no OPTS=no/yes/dynamic
   --enable-mzschemeinterp   Include MzScheme interpreter.
   --enable-perlinterp=OPTS     Include Perl interpreter.  default=no OPTS=no/yes/dynamic
@@ -6391,6 +6393,24 @@ fi
 
 
 
+
+
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking --enable-async argument" >&5
+$as_echo_n "checking --enable-async argument... " >&6; }
+# Check whether --enable-async was given.
+if test "${enable_async+set}" = set; then :
+  enableval=$enable_async;
+else
+  enable_async="no"
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_async" >&5
+$as_echo "$enable_async" >&6; }
+if test "$enable_async" = "yes"; then
+  $as_echo "#define FEAT_ASYNC 1" >>confdefs.h
+
+fi
 
 
 

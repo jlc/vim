@@ -1504,6 +1504,15 @@ AC_SUBST(RUBY_PRO)
 AC_SUBST(RUBY_CFLAGS)
 AC_SUBST(RUBY_LIBS)
 
+AC_MSG_CHECKING(--enable-async argument)
+AC_ARG_ENABLE(async,
+	[  --enable-async         Include async interface.], ,
+	[enable_async="no"])
+AC_MSG_RESULT($enable_async)
+if test "$enable_async" = "yes"; then
+  AC_DEFINE(FEAT_ASYNC)
+fi
+
 AC_MSG_CHECKING(--enable-cscope argument)
 AC_ARG_ENABLE(cscope,
 	[  --enable-cscope         Include cscope interface.], ,

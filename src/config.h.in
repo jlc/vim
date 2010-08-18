@@ -372,6 +372,9 @@
 /* Define if you want to add support of sysmouse (*BSD console mouse) */
 #undef HAVE_SYSMOUSE
 
+/* Define if you want to include the async system() interface. */
+#undef FEAT_ASYNC
+
 /* Define if you want to include the Cscope interface. */
 #undef FEAT_CSCOPE
 
