@@ -724,6 +724,9 @@ static void f_synIDtrans __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_synstack __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_synconcealed __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_system __ARGS((typval_T *argvars, typval_T *rettv));
+#ifdef FEAT_ASYNC
+static void f_asystem __ARGS((typval_T *argvars, typval_T *rettv));
+#endif
 static void f_tabpagebuflist __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_tabpagenr __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_tabpagewinnr __ARGS((typval_T *argvars, typval_T *rettv));
@@ -7656,6 +7659,11 @@ static struct fst
     {"argv",		0, 1, f_argv},
 #ifdef FEAT_FLOAT
     {"asin",		1, 1, f_asin},	/* WJMc */
+#endif
+#ifdef FEAT_ASYNC
+    {"asystem",		2, 3, f_asystem},
+#endif
+#ifdef FEAT_FLOAT
     {"atan",		1, 1, f_atan},
     {"atan2",		2, 2, f_atan2},
 #endif
@@ -17367,6 +17375,123 @@ done:
     rettv->v_type = VAR_STRING;
     rettv->vval.v_string = res;
 }
+
+#ifdef FEAT_ASYNC
+/*
+ * "asystem(func, expr [, input])" function
+ */
+    static void
+f_asystem(argvars, rettv)
+    typval_T	*argvars;
+    typval_T	*rettv;
+{
+    char_u	*func;
+    typval_T	funcargv[2];
+    int		dummy;
+    char_u	*res = NULL;
+    char_u	*p;
+    char_u	*infile = NULL;
+    char_u	buf[NUMBUFLEN];
+    int		err = FALSE;
+    FILE	*fd;
+
+    if (check_restricted() || check_secure())
+	goto done;
+
+    if (argvars[0].v_type == VAR_FUNC)
+	func = argvars[0].vval.v_string;
+    else
+	func = get_tv_string(&argvars[0]);
+    if (*func == NUL)
+	return;		/* type error or empty name */
+
+    if (argvars[2].v_type != VAR_UNKNOWN)
+    {
+	/*
+	 * Write the string to a temp file, to be used for input of the shell
+	 * command.
+	 */
+	if ((infile = vim_tempname('i')) == NULL)
+	{
+	    EMSG(_(e_notmp));
+	    goto done;
+	}
+
+	fd = mch_fopen((char *)infile, WRITEBIN);
+	if (fd == NULL)
+	{
+	    EMSG2(_(e_notopen), infile);
+	    goto done;
+	}
+	p = get_tv_string_buf_chk(&argvars[2], buf);
+	if (p == NULL)
+	{
+	    fclose(fd);
+	    goto done;		/* type error; errmsg already given */
+	}
+	if (fwrite(p, STRLEN(p), 1, fd) != 1)
+	    err = TRUE;
+	if (fclose(fd) != 0)
+	    err = TRUE;
+	if (err)
+	{
+	    EMSG(_("E677: Error writing temp file"));
+	    goto done;
+	}
+    }
+
+    res = get_cmd_output(get_tv_string(&argvars[1]), infile,
+						 SHELL_SILENT | SHELL_COOKED);
+
+#ifdef USE_CR
+    /* translate <CR> into <NL> */
+    if (res != NULL)
+    {
+	char_u	*s;
+
+	for (s = res; *s; ++s)
+	{
+	    if (*s == CAR)
+		*s = NL;
+	}
+    }
+#else
+# ifdef USE_CRNL
+    /* translate <CR><NL> into <NL> */
+    if (res != NULL)
+    {
+	char_u	*s, *d;
+
+	d = res;
+	for (s = res; *s; ++s)
+	{
+	    if (s[0] == CAR && s[1] == NL)
+		++s;
+	    *d++ = *s;
+	}
+	*d = NUL;
+    }
+# endif
+#endif
+
+    funcargv[0].v_type = VAR_STRING;
+    funcargv[0].vval.v_string = res;
+
+    (void)call_func(func, (int)STRLEN(func), rettv, 1, funcargv,
+			     curwin->w_cursor.lnum, curwin->w_cursor.lnum,
+						  &dummy, TRUE, NULL);
+
+done:
+    if (infile != NULL)
+    {
+	mch_remove(infile);
+	vim_free(infile);
+    }
+
+    if (res)
+	vim_free(res);
+}
+#endif
 
 /*
  * "tabpagebuflist()" function
