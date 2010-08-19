@@ -10353,6 +10353,32 @@ done:
 }
 #endif
 
+#ifdef FEAT_ASYNC
+/*
+ * Start a new async task.  ctx->callback will be called with data.
+ * Returns -1 on failure, >=0 on success.
+ */
+    int
+queue_async_task(ctx, cmd)
+    async_ctx_T *ctx;
+    char_u	*cmd;
+{
+    char_u	*data = NULL;
+
+    // maybe I should be passing around a vim_async structure instead
+
+    data = get_cmd_output(cmd, ctx->infile, SHELL_SILENT | SHELL_COOKED);
+
+    ctx->callback(ctx, data);
+
+    if (data)
+	vim_free(data);
+
+    return 0;
+}
+
+#endif
+
 /*
  * Free the list of files returned by expand_wildcards() or other expansion
  * functions.

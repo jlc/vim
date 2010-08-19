@@ -17554,6 +17554,88 @@ done:
 }
 
 #ifdef FEAT_ASYNC
+    static async_ctx_T *
+alloc_async_ctx()
+{
+    return (async_ctx_T *)alloc_clear((unsigned)sizeof(async_ctx_T));
+}
+
+    void
+free_async_ctx(ctx)
+    async_ctx_T *ctx;
+{
+    if (ctx) {
+	if (ctx->infile != NULL)
+	{
+	    mch_remove(ctx->infile);
+	    vim_free(ctx->infile);
+	}
+	vim_free(ctx);
+    }
+}
+
+/*
+ * "asystem(func, expr [, input])" function
+ */
+    static int
+asystem_callback(ctx, data)
+    async_ctx_T *ctx;
+    char_u      *data;
+{
+    int         res;
+    typval_T	funcargv[2];
+    typval_T	funcrettv;
+    int		dummy;
+
+#ifdef USE_CR
+    /* translate <CR> into <NL> */
+    if (data != NULL)
+    {
+	char_u	*s;
+
+	for (s = data; *s; ++s)
+	{
+	    if (*s == CAR)
+		*s = NL;
+	}
+    }
+#else
+# ifdef USE_CRNL
+    /* translate <CR><NL> into <NL> */
+    if (data != NULL)
+    {
+	char_u	*s, *d;
+
+	d = data;
+	for (s = data; *s; ++s)
+	{
+	    if (s[0] == CAR && s[1] == NL)
+		++s;
+	    *d++ = *s;
+	}
+	*d = NUL;
+    }
+# endif
+#endif
+    funcargv[0].v_type = VAR_STRING;
+    funcargv[0].vval.v_string = data;
+
+    vim_memset(&funcrettv, 0, sizeof(typval_T));
+
+    res = call_func(ctx->func, (int)STRLEN(ctx->func), &funcrettv, 1, funcargv,
+			     curwin->w_cursor.lnum, curwin->w_cursor.lnum,
+						  &dummy, TRUE, NULL);
+    if (res == OK) {
+	res = funcrettv.vval.v_number;
+	if (funcrettv.v_type != VAR_NUMBER) {
+	    EMSG(_("E999: Return from callback should be a number."));
+	    res = FAIL;
+	}
+    }
+
+    return res;
+}
+
 /*
  * "asystem(func, expr [, input])" function
  */
@@ -17562,42 +17644,46 @@ f_asystem(argvars, rettv)
     typval_T	*argvars;
     typval_T	*rettv;
 {
-    char_u	*func;
-    typval_T	funcargv[2];
-    int		dummy;
-    char_u	*res = NULL;
-    char_u	*p;
-    char_u	*infile = NULL;
-    char_u	buf[NUMBUFLEN];
-    int		err = FALSE;
-    FILE	*fd;
+    int		err = TRUE;
+    int		pid = -1;
+    async_ctx_T *ctx = NULL;
 
     if (check_restricted() || check_secure())
 	goto done;
 
+    ctx = alloc_async_ctx();
+    if (!ctx) {
+	EMSG(_("E999: Error allocating context"));
+	goto done;
+    }
+
     if (argvars[0].v_type == VAR_FUNC)
-	func = argvars[0].vval.v_string;
+	ctx->func = argvars[0].vval.v_string;
     else
-	func = get_tv_string(&argvars[0]);
-    if (*func == NUL)
-	return;		/* type error or empty name */
+	ctx->func = get_tv_string(&argvars[0]);
+    if (*(ctx->func) == NUL)
+	goto done;		/* type error or empty name */
 
     if (argvars[2].v_type != VAR_UNKNOWN)
     {
+	char_u *p;
+	FILE *fd;
+	char_u buf[NUMBUFLEN];
+
 	/*
 	 * Write the string to a temp file, to be used for input of the shell
 	 * command.
 	 */
-	if ((infile = vim_tempname('i')) == NULL)
+	if ((ctx->infile = vim_tempname('i')) == NULL)
 	{
 	    EMSG(_(e_notmp));
 	    goto done;
 	}
 
-	fd = mch_fopen((char *)infile, WRITEBIN);
+	fd = mch_fopen((char *)ctx->infile, WRITEBIN);
 	if (fd == NULL)
 	{
-	    EMSG2(_(e_notopen), infile);
+	    EMSG2(_(e_notopen), ctx->infile);
 	    goto done;
 	}
 	p = get_tv_string_buf_chk(&argvars[2], buf);
@@ -17617,56 +17703,18 @@ f_asystem(argvars, rettv)
 	}
     }
 
-    res = get_cmd_output(get_tv_string(&argvars[1]), infile,
-						 SHELL_SILENT | SHELL_COOKED);
+    ctx->callback = asystem_callback;
 
-#ifdef USE_CR
-    /* translate <CR> into <NL> */
-    if (res != NULL)
-    {
-	char_u	*s;
-
-	for (s = res; *s; ++s)
-	{
-	    if (*s == CAR)
-		*s = NL;
-	}
-    }
-#else
-# ifdef USE_CRNL
-    /* translate <CR><NL> into <NL> */
-    if (res != NULL)
-    {
-	char_u	*s, *d;
-
-	d = res;
-	for (s = res; *s; ++s)
-	{
-	    if (s[0] == CAR && s[1] == NL)
-		++s;
-	    *d++ = *s;
-	}
-	*d = NUL;
-    }
-# endif
-#endif
-
-    funcargv[0].v_type = VAR_STRING;
-    funcargv[0].vval.v_string = res;
-
-    (void)call_func(func, (int)STRLEN(func), rettv, 1, funcargv,
-			     curwin->w_cursor.lnum, curwin->w_cursor.lnum,
-						  &dummy, TRUE, NULL);
-
+    pid = queue_async_task(ctx, get_tv_string(&argvars[1]));
+    if (pid != -1)
+	err = FALSE;
+					
 done:
-    if (infile != NULL)
-    {
-	mch_remove(infile);
-	vim_free(infile);
-    }
+    if (err && ctx)
+	free_async_ctx(ctx);
 
-    if (res)
-	vim_free(res);
+    rettv->v_type = VAR_NUMBER;
+    rettv->vval.v_number = pid;
 }
 #endif
 
