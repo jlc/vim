@@ -228,6 +228,13 @@ typedef struct
 static xsmp_config_T xsmp;
 #endif
 
+static int build_argv __ARGS((char_u *newsh, const char_u *cmd, int *argc, char ***argv));
+static void simulate_dumb_terminal __ARGS((void));
+
+#ifdef FEAT_ASYNC
+static void queue_running_task __ARGS((async_ctx_T *ctx));
+#endif
+
 #ifdef SYS_SIGLIST_DECLARED
 /*
  * I have seen
@@ -3664,6 +3671,102 @@ append_ga_line(gap)
 }
 #endif
 
+    static int
+build_argv(newsh, cmd, out_argc, out_argv)
+    char_u	*newsh;
+    const char_u *cmd;
+    int		*out_argc;
+    char	***out_argv;
+{
+    int		i;
+    char_u	*p;
+    int		inquote;
+    int		argc = 0;
+    char	**argv = NULL;
+    int		res = FAIL;
+
+    /*
+     * Do this loop twice:
+     * 1: find number of arguments
+     * 2: separate them and build argv[]
+     */
+    for (i = 0; i < 2; ++i)
+    {
+	p = newsh;
+	inquote = FALSE;
+	argc = 0;
+	for (;;)
+	{
+	    if (i == 1)
+		argv[argc] = (char *)p;
+	    ++argc;
+	    while (*p && (inquote || (*p != ' ' && *p != TAB)))
+	    {
+		if (*p == '"')
+		    inquote = !inquote;
+		++p;
+	    }
+	    if (*p == NUL)
+		break;
+	    if (i == 1)
+		*p++ = NUL;
+	    p = skipwhite(p);
+	}
+	if (argv == NULL)
+	{
+	    argv = (char **)alloc((unsigned)((argc + 4) * sizeof(char *)));
+	    if (argv == NULL)	    /* out of memory */
+		goto bail;
+	}
+    }
+    if (cmd != NULL)
+    {
+	if (extra_shell_arg != NULL)
+	    argv[argc++] = (char *)extra_shell_arg;
+	argv[argc++] = (char *)p_shcf;
+	argv[argc++] = (char *)cmd;
+    }
+    argv[argc] = NULL;
+
+    res = OK;
+    // fall through expected
+bail:
+    *out_argc = argc;
+    *out_argv = argv;
+    return res;
+}
+
+    static void
+simulate_dumb_terminal()
+{
+# ifdef HAVE_SETENV
+    char	envbuf[50];
+    setenv("TERM", "dumb", 1);
+    sprintf((char *)envbuf, "%ld", Rows);
+    setenv("ROWS", (char *)envbuf, 1);
+    sprintf((char *)envbuf, "%ld", Rows);
+    setenv("LINES", (char *)envbuf, 1);
+    sprintf((char *)envbuf, "%ld", Columns);
+    setenv("COLUMNS", (char *)envbuf, 1);
+# else
+    static char	envbuf_Rows[20];
+    static char	envbuf_Columns[20];
+    /*
+     * Putenv does not copy the string, it has to remain valid.
+     * Use a static array to avoid losing allocated memory.
+     */
+    putenv("TERM=dumb");
+    sprintf(envbuf_Rows, "ROWS=%ld", Rows);
+    putenv(envbuf_Rows);
+    sprintf(envbuf_Rows, "LINES=%ld", Rows);
+    putenv(envbuf_Rows);
+    sprintf(envbuf_Columns, "COLUMNS=%ld", Columns);
+    putenv(envbuf_Columns);
+# endif
+}
+
+
+
     int
 mch_call_shell(cmd, options)
     char_u	*cmd;
@@ -3797,7 +3900,6 @@ mch_call_shell(cmd, options)
     int		argc;
     int		i;
     char_u	*p;
-    int		inquote;
     int		pty_master_fd = -1;	    /* for pty's */
 # ifdef FEAT_GUI
     int		pty_slave_fd = -1;
@@ -3806,12 +3908,6 @@ mch_call_shell(cmd, options)
     int		fd_toshell[2];		/* for pipes */
     int		fd_fromshell[2];
     int		pipe_error = FALSE;
-# ifdef HAVE_SETENV
-    char	envbuf[50];
-# else
-    static char	envbuf_Rows[20];
-    static char	envbuf_Columns[20];
-# endif
     int		did_settmode = FALSE;	/* settmode(TMODE_RAW) called */
 
     out_flush();
@@ -3822,48 +3918,8 @@ mch_call_shell(cmd, options)
     if (newcmd == NULL)		/* out of memory */
 	goto error;
 
-    /*
-     * Do this loop twice:
-     * 1: find number of arguments
-     * 2: separate them and build argv[]
-     */
-    for (i = 0; i < 2; ++i)
-    {
-	p = newcmd;
-	inquote = FALSE;
-	argc = 0;
-	for (;;)
-	{
-	    if (i == 1)
-		argv[argc] = (char *)p;
-	    ++argc;
-	    while (*p && (inquote || (*p != ' ' && *p != TAB)))
-	    {
-		if (*p == '"')
-		    inquote = !inquote;
-		++p;
-	    }
-	    if (*p == NUL)
-		break;
-	    if (i == 1)
-		*p++ = NUL;
-	    p = skipwhite(p);
-	}
-	if (argv == NULL)
-	{
-	    argv = (char **)alloc((unsigned)((argc + 4) * sizeof(char *)));
-	    if (argv == NULL)	    /* out of memory */
-		goto error;
-	}
-    }
-    if (cmd != NULL)
-    {
-	if (extra_shell_arg != NULL)
-	    argv[argc++] = (char *)extra_shell_arg;
-	argv[argc++] = (char *)p_shcf;
-	argv[argc++] = (char *)cmd;
-    }
-    argv[argc] = NULL;
+    if (!build_argv(newcmd, cmd, &argc, &argv))
+	goto error;
 
     /*
      * For the GUI, when writing the output into the buffer and when reading
@@ -4025,27 +4081,7 @@ mch_call_shell(cmd, options)
 		}
 # endif
 		/* Simulate to have a dumb terminal (for now) */
-# ifdef HAVE_SETENV
-		setenv("TERM", "dumb", 1);
-		sprintf((char *)envbuf, "%ld", Rows);
-		setenv("ROWS", (char *)envbuf, 1);
-		sprintf((char *)envbuf, "%ld", Rows);
-		setenv("LINES", (char *)envbuf, 1);
-		sprintf((char *)envbuf, "%ld", Columns);
-		setenv("COLUMNS", (char *)envbuf, 1);
-# else
-		/*
-		 * Putenv does not copy the string, it has to remain valid.
-		 * Use a static array to avoid losing allocated memory.
-		 */
-		putenv("TERM=dumb");
-		sprintf(envbuf_Rows, "ROWS=%ld", Rows);
-		putenv(envbuf_Rows);
-		sprintf(envbuf_Rows, "LINES=%ld", Rows);
-		putenv(envbuf_Rows);
-		sprintf(envbuf_Columns, "COLUMNS=%ld", Columns);
-		putenv(envbuf_Columns);
-# endif
+		simulate_dumb_terminal();
 
 		/*
 		 * stderr is only redirected when using the GUI, so that a
@@ -4670,6 +4706,136 @@ error:
 
 #endif /* USE_SYSTEM */
 }
+
+#ifdef FEAT_ASYNC
+/*
+ * Start new async task.  ctx->callback will be called with data.
+ * Returns -1 on failure, pid value on success.
+ */
+    int
+mch_start_async_shell(ctx, cmd)
+    async_ctx_T *ctx;
+    char_u	*cmd;
+{
+    int		pid = -1;
+    const char	*infile;
+    int		fd_infile;
+    char_u	*newcmd = NULL;
+    char	**argv = NULL;
+    int		argc = 0;
+    int		fd_fromshell[2];
+    int		pipe_error = FALSE;
+
+    infile = (const char *)ctx->infile;
+    if (!infile)
+	infile = "/dev/null";
+    fd_infile = open(infile, O_RDONLY, 0);
+    if (!fd_infile) {
+	MSG_PUTS(_("\nCannot open temp infile.\n"));
+	goto error_open_infile;
+    }
+
+    newcmd = vim_strsave(p_sh);
+    if (newcmd == NULL)		/* out of memory */
+	goto error_newcmd;
+
+    if (!build_argv(newcmd, cmd, &argc, &argv)) {
+	MSG_PUTS(_("\nCannot build argument list\n"));
+	goto error_build_argv;
+    }
+
+    pipe_error = (pipe(fd_fromshell) < 0);
+    if (pipe_error) {
+	MSG_PUTS(_("\nCannot create pipe\n"));
+	goto error_pipe;
+    }
+
+    pid = fork();
+    if (pid == -1) {
+	MSG_PUTS(_("\nCannot fork\n"));
+	goto error_fork;
+
+    } else if (pid == 0) { /* child */
+	reset_signals();		/* handle signals normally */
+
+	simulate_dumb_terminal();
+
+	/* set up stdin for the child */
+	close(0);
+	ignored = dup(fd_infile);
+	close(fd_infile);
+
+	/* set up stdout/stderr for the child */
+	close(fd_fromshell[0]);
+	close(1);
+	ignored = dup(fd_fromshell[1]);
+	close(2);
+	ignored = dup(fd_fromshell[1]);
+	close(fd_fromshell[1]);
+
+	execvp(argv[0], argv);
+	_exit(EXEC_FAILED);	    /* exec failed, return failure code */
+    }
+
+    /* parent */
+    close(fd_infile);
+
+    close(fd_fromshell[1]);
+    ctx->fd_pipe = fd_fromshell[0];
+
+    ctx->pid = pid;
+    queue_running_task(ctx);
+
+    return pid;
+
+error_fork:
+	close(fd_fromshell[0]);
+	close(fd_fromshell[1]);
+error_pipe:
+    vim_free(argv);
+error_build_argv:
+    vim_free(newcmd);
+error_newcmd:
+    close(fd_infile);
+error_open_infile:
+
+    return -1;
+}
+
+    static void
+queue_running_task (ctx)
+    async_ctx_T *ctx;
+{
+#define BUF_SIZE 4096
+    char_u buf[BUF_SIZE];
+    int len, rc, status;
+
+    while ((len = read(ctx->fd_pipe, buf, BUF_SIZE)) > 0) {
+
+	buf[len] = 0;
+
+	if (ctx->callback(ctx, buf, len))
+	    break;
+    }
+
+    if ( waitpid(ctx->pid, &status, WNOHANG) == 0 ) {
+	// child is still running
+	
+	// TODO: this needs to be handled better
+	// ... what if your process doesn't quit politely?
+	kill(ctx->pid, SIGTERM);
+
+	rc = waitpid(ctx->pid, &status, 0);
+	// TODO: again, needs better handling
+	
+	// TODO: convert above waitpid's to be compatible with wait4()
+    }
+
+    free_async_ctx(ctx);
+}
+
+#endif
+
 
 /*
  * Check for CTRL-C typed by reading all available characters.

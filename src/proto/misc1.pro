@@ -96,7 +96,9 @@ void addfile __ARGS((garray_T *gap, char_u *f, int flags));
 char_u *get_cmd_output __ARGS((char_u *cmd, char_u *infile, int flags));
 void FreeWild __ARGS((int count, char_u **files));
 int goto_im __ARGS((void));
+int start_async_task __ARGS((async_ctx_T *ctx, char_u *cmd));
 #ifdef FEAT_ASYNC
-int queue_async_task __ARGS((async_ctx_T *ctx, char_u *cmd));
+async_ctx_T *alloc_async_ctx __ARGS((void));
+void free_async_ctx __ARGS((async_ctx_T *ctx));
 #endif
 /* vim: set ft=c : */
