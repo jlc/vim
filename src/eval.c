@@ -17554,36 +17554,17 @@ done:
 }
 
 #ifdef FEAT_ASYNC
-    static async_ctx_T *
-alloc_async_ctx()
-{
-    return (async_ctx_T *)alloc_clear((unsigned)sizeof(async_ctx_T));
-}
-
-    void
-free_async_ctx(ctx)
-    async_ctx_T *ctx;
-{
-    if (ctx) {
-	if (ctx->infile != NULL)
-	{
-	    mch_remove(ctx->infile);
-	    vim_free(ctx->infile);
-	}
-	vim_free(ctx);
-    }
-}
-
 /*
  * "asystem(func, expr [, input])" function
  */
     static int
-asystem_callback(ctx, data)
+asystem_callback(ctx, data, len)
     async_ctx_T *ctx;
     char_u      *data;
+    int		len;
 {
     int         res;
-    typval_T	funcargv[2];
+    typval_T	funcargv[4];
     typval_T	funcrettv;
     int		dummy;
 
@@ -17617,12 +17598,16 @@ asystem_callback(ctx, data)
     }
 # endif
 #endif
+
     funcargv[0].v_type = VAR_STRING;
     funcargv[0].vval.v_string = data;
+    funcargv[1].v_type = VAR_NUMBER;
+    funcargv[1].vval.v_number = len;
+    copy_tv(&ctx->tv_dict, &funcargv[2]);
 
     vim_memset(&funcrettv, 0, sizeof(typval_T));
 
-    res = call_func(ctx->func, (int)STRLEN(ctx->func), &funcrettv, 1, funcargv,
+    res = call_func(ctx->func, (int)STRLEN(ctx->func), &funcrettv, 3, funcargv,
 			     curwin->w_cursor.lnum, curwin->w_cursor.lnum,
 						  &dummy, TRUE, NULL);
     if (res == OK) {
@@ -17705,7 +17690,7 @@ f_asystem(argvars, rettv)
 
     ctx->callback = asystem_callback;
 
-    pid = queue_async_task(ctx, get_tv_string(&argvars[1]));
+    pid = start_async_task(ctx, get_tv_string(&argvars[1]));
     if (pid != -1)
 	err = FALSE;
 					

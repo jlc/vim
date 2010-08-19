@@ -10355,17 +10355,75 @@ done:
 
 #ifdef FEAT_ASYNC
 /*
+ * Allocate and initialize a new async context structure.
+ * Returns pointer to new ctx, or NULL on failure.
+ */
+    async_ctx_T *
+alloc_async_ctx()
+{
+    async_ctx_T *ctx;
+    dict_T	*d;
+
+    ctx = (async_ctx_T *)alloc_clear((unsigned)sizeof(async_ctx_T));
+    if (!ctx)
+	return NULL;
+
+    d = dict_alloc();
+    if (!d) {
+	vim_free(ctx);
+	return NULL;
+    }
+    /* we own this dictionary */
+    ++d->dv_refcount;
+    ctx->tv_dict.v_type = VAR_DICT;
+    ctx->tv_dict.vval.v_dict = d;
+
+    ctx->pid = -1;
+    ctx->fd_pipe = -1;
+
+    return ctx;
+}
+
+/*
+ * Free resources associated with an async context.
+ */
+    void
+free_async_ctx(ctx)
+    async_ctx_T *ctx;
+{
+    if (ctx) {
+	if (ctx->fd_pipe != -1) {
+	    close(ctx->fd_pipe);
+	    ctx->fd_pipe = -1;
+	}
+
+	if (ctx->infile != NULL) {
+	    mch_remove(ctx->infile);
+	    vim_free(ctx->infile);
+	    ctx->infile = NULL;
+	}
+
+	if (!ctx->tv_dict.v_lock)
+	    clear_tv(&ctx->tv_dict);
+
+	vim_free(ctx);
+    }
+}
+
+/*
  * Start a new async task.  ctx->callback will be called with data.
  * Returns -1 on failure, >=0 on success.
  */
     int
-queue_async_task(ctx, cmd)
+start_async_task(ctx, cmd)
     async_ctx_T *ctx;
     char_u	*cmd;
 {
-    char_u	*data = NULL;
+#if HAVE_ASYNC_SHELL
+    return mch_start_async_shell(ctx, cmd);
 
-    // maybe I should be passing around a vim_async structure instead
+#else /* don't HAVE_ASYNC_SHELL, fake it */
+    char_u	*data = NULL;
 
     data = get_cmd_output(cmd, ctx->infile, SHELL_SILENT | SHELL_COOKED);
 
@@ -10375,9 +10433,10 @@ queue_async_task(ctx, cmd)
 	vim_free(data);
 
     return 0;
-}
-
 #endif
+}
+#endif
+
 
 /*
  * Free the list of files returned by expand_wildcards() or other expansion
