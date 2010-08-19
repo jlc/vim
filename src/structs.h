@@ -2460,3 +2460,14 @@ typedef struct {
   UINT32_T state[8];
   char_u   buffer[64];
 } context_sha256_T;
+
+#ifdef FEAT_ASYNC
+/*
+ * Async context used internally to handle asystem() state.
+ */
+typedef struct _async_ctx {
+    char_u	*func;
+    char_u	*infile;
+    int         (*callback)(struct _async_ctx*, char_u*);
+} async_ctx_T;
+#endif
