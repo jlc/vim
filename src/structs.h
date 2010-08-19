@@ -2466,8 +2466,11 @@ typedef struct {
  * Async context used internally to handle asystem() state.
  */
 typedef struct _async_ctx {
-    char_u	*func;
-    char_u	*infile;
-    int         (*callback)(struct _async_ctx*, char_u*);
+    char_u	*func;      /* vimscript function */
+    typval_T    tv_dict;    /* vimscript context for func */
+    char_u	*infile;    /* input file name */
+    int		pid;        /* async process ID */
+    int		fd_pipe;    /* fd reading from process */
+    int         (*callback)(struct _async_ctx*, char_u*, int len);
 } async_ctx_T;
 #endif

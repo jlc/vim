@@ -73,4 +73,8 @@ void clip_xterm_set_selection __ARGS((VimClipboard *cbd));
 int xsmp_handle_requests __ARGS((void));
 void xsmp_init __ARGS((void));
 void xsmp_close __ARGS((void));
+#ifdef FEAT_ASYNC
+#define HAVE_ASYNC_SHELL 1
+int mch_start_async_shell __ARGS((async_ctx_T *ctx, char_u *cmd));
+#endif
 /* vim: set ft=c : */
