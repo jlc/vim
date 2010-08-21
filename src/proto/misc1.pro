@@ -101,4 +101,9 @@ int start_async_task __ARGS((async_ctx_T *ctx, char_u *cmd));
 async_ctx_T *alloc_async_ctx __ARGS((void));
 void free_async_ctx __ARGS((async_ctx_T *ctx));
 #endif
+#if HAVE_ASYNC_SHELL
+void async_task_list_add __ARGS((async_ctx_T *ctx));
+void async_task_list_remove __ARGS((async_ctx_T *ctx));
+async_ctx_T* async_task_list_head __ARGS((void));
+#endif
 /* vim: set ft=c : */

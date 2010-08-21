@@ -10138,6 +10138,11 @@ free_async_ctx(ctx)
 	    ctx->infile = NULL;
 	}
 
+	if (ctx->func) {
+	    vim_free(ctx->func);
+	    ctx->func = NULL;
+	}
+
 	if (!ctx->tv_dict.v_lock)
 	    clear_tv(&ctx->tv_dict);
 
@@ -10172,6 +10177,46 @@ start_async_task(ctx, cmd)
 }
 #endif
 
+#if HAVE_ASYNC_SHELL
+static async_ctx_T *async_task_list = NULL;
+
+    void
+async_task_list_add(ctx)
+    async_ctx_T	*ctx;
+{
+    if (ctx->next)
+	return;
+
+    ctx->next = async_task_list;
+    async_task_list = ctx;
+}
+
+    void
+async_task_list_remove(ctx)
+    async_ctx_T	*ctx;
+{
+    async_ctx_T	**p=&async_task_list, *e;
+
+    for (e=async_task_list; e; e=e->next) {
+	if (e == ctx) {
+	    *p = e->next;
+	    e->next = NULL;
+	    return;
+	}
+
+	p = &e->next;
+    }
+
+    return;
+}
+
+    async_ctx_T*
+async_task_list_head()
+{
+    return async_task_list;
+}
+
+#endif
 
 /*
  * Free the list of files returned by expand_wildcards() or other expansion
