@@ -17565,8 +17565,9 @@ asystem_callback(ctx, data, len)
 {
     int         res;
     typval_T	funcargv[4];
+    int		funcargc;
     typval_T	funcrettv;
-    int		dummy;
+    int		dummy = 0;
 
 #ifdef USE_CR
     /* translate <CR> into <NL> */
@@ -17600,16 +17601,20 @@ asystem_callback(ctx, data, len)
 #endif
 
     funcargv[0].v_type = VAR_STRING;
-    funcargv[0].vval.v_string = data;
+    funcargv[0].vval.v_string = vim_strsave(data);
     funcargv[1].v_type = VAR_NUMBER;
     funcargv[1].vval.v_number = len;
     copy_tv(&ctx->tv_dict, &funcargv[2]);
+    funcargc = 3;
+
+    /* the dict cannot be replaced */
+    ctx->tv_dict.v_lock = VAR_FIXED;
 
     vim_memset(&funcrettv, 0, sizeof(typval_T));
 
-    res = call_func(ctx->func, (int)STRLEN(ctx->func), &funcrettv, 3, funcargv,
-			     curwin->w_cursor.lnum, curwin->w_cursor.lnum,
-						  &dummy, TRUE, NULL);
+    res = call_func(ctx->func, (int)STRLEN(ctx->func), &funcrettv,
+	    funcargc, funcargv, curwin->w_cursor.lnum,
+	    curwin->w_cursor.lnum, &dummy, TRUE, NULL);
     if (res == OK) {
 	res = funcrettv.vval.v_number;
 	if (funcrettv.v_type != VAR_NUMBER) {
@@ -17617,6 +17622,9 @@ asystem_callback(ctx, data, len)
 	    res = FAIL;
 	}
     }
+
+    while (--funcargc >= 0)
+	clear_tv(&funcargv[funcargc]);
 
     return res;
 }
@@ -17682,6 +17690,9 @@ f_asystem(argvars, rettv)
 	EMSG(_("E999: Third argument to asystem() needs to be a dictionary."));
 	goto done;
     }
+
+    /* the ctx cannot be replaced */
+    ctx->tv_dict.v_lock = VAR_FIXED;
 
     /* decode input arg */
     if (argvars[3].v_type != VAR_UNKNOWN)
