@@ -4975,7 +4975,6 @@ handle_async_task (ctx, read_event, expt_event)
 	    // TODO: convert above waitpid's to be compatible with wait4()
 	}
 
-	async_task_list_remove(ctx);
 	free_async_ctx(ctx);
     }
 }
@@ -5098,7 +5097,7 @@ RealWaitForChar(fd, msec, check_for_gpm)
 #ifdef FEAT_NETBEANS_INTG
     int		nb_fd = netbeans_filedesc();
 #endif
-#if defined(FEAT_XCLIPBOARD) || defined(USE_XSMP) || defined(FEAT_MZSCHEME)
+#if defined(FEAT_XCLIPBOARD) || defined(USE_XSMP) || defined(FEAT_MZSCHEME) || defined(HAVE_ASYNC_SHELL)
     static int	busy = FALSE;
 
     /* May retry getting characters after an event was handled. */
@@ -5487,8 +5486,14 @@ select_eintr:
 	    /* handle the async task if it has an event */
 	    rd = FD_ISSET(actx->fd_pipe, &rfds);
 	    ex = FD_ISSET(actx->fd_pipe, &efds);
-	    if (rd || ex)
+	    if (rd || ex) {
+		/* avoid recursion when handling async task */
+		busy = TRUE;
 		handle_async_task(actx, rd, ex);
+		busy = FALSE;
+		if (--ret == 0)
+		    finished = FALSE;	/* Try again */
+	    }
 	}
 #endif
 
