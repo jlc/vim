@@ -10098,21 +10098,10 @@ done:
 alloc_async_ctx()
 {
     async_ctx_T *ctx;
-    dict_T	*d;
 
     ctx = (async_ctx_T *)alloc_clear((unsigned)sizeof(async_ctx_T));
     if (!ctx)
 	return NULL;
-
-    d = dict_alloc();
-    if (!d) {
-	vim_free(ctx);
-	return NULL;
-    }
-    /* we own this dictionary */
-    ++d->dv_refcount;
-    ctx->tv_dict.v_type = VAR_DICT;
-    ctx->tv_dict.vval.v_dict = d;
 
     ctx->pid = -1;
     ctx->fd_pipe = -1;

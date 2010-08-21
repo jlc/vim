@@ -17445,7 +17445,11 @@ asystem_callback(ctx, data, len)
 }
 
 /*
- * "asystem(func, expr [, input])" function
+ * "asystem(func, expr [, ctx [, input]])" function
+ * func  - function name or reference to call with data
+ * expr  - shell code to execute
+ * ctx   - optional dictionary to pass as context
+ * input - text to pass to shell as stdin
  */
     static void
 f_asystem(argvars, rettv)
@@ -17476,7 +17480,34 @@ f_asystem(argvars, rettv)
     if (*(ctx->func) == NUL)
 	goto done;
 
-    if (argvars[2].v_type != VAR_UNKNOWN)
+    /* decode ctx arg */
+    switch (argvars[2].v_type)
+    {
+    case VAR_UNKNOWN: {
+	/* we were not given a dict, create one */
+	dict_T *d = dict_alloc();
+	if (!d) {
+	    EMSG(_("E999: Error allocating dictionary"));
+	    goto done;
+	}
+	/* we own this dictionary */
+	++d->dv_refcount;
+	ctx->tv_dict.v_type = VAR_DICT;
+	ctx->tv_dict.vval.v_dict = d;
+	break;
+    }
+    case VAR_DICT:
+	/* refcount the dict we were given */
+	copy_tv(&argvars[2], &ctx->tv_dict);
+	break;
+
+    default:
+	EMSG(_("E999: Third argument to asystem() needs to be a dictionary."));
+	goto done;
+    }
+
+    /* decode input arg */
+    if (argvars[3].v_type != VAR_UNKNOWN)
     {
 	char_u *p;
 	FILE *fd;
@@ -17498,12 +17529,13 @@ f_asystem(argvars, rettv)
 	    EMSG2(_(e_notopen), ctx->infile);
 	    goto done;
 	}
-	p = get_tv_string_buf_chk(&argvars[2], buf);
+	p = get_tv_string_buf_chk(&argvars[3], buf);
 	if (p == NULL)
 	{
 	    fclose(fd);
 	    goto done;		/* type error; errmsg already given */
 	}
+	err = FALSE;
 	if (fwrite(p, STRLEN(p), 1, fd) != 1)
 	    err = TRUE;
 	if (fclose(fd) != 0)
