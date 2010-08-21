@@ -5413,6 +5413,7 @@ select_eintr:
 #if HAVE_ASYNC_SHELL
 	for (actx=async_task_list_head(); actx; actx=actx->next) {
 	    FD_SET(actx->fd_pipe, &rfds);
+	    FD_SET(actx->fd_pipe, &efds);
 	    if (maxfd < actx->fd_pipe)
 		maxfd = actx->fd_pipe;
 	}
@@ -5517,7 +5518,7 @@ select_eintr:
 	}
 #endif
 #if HAVE_ASYNC_SHELL
-	for (actx=async_task_list_head(); actx; actx=anext) {
+	for (actx=async_task_list_head(); ret>0 && actx; actx=anext) {
 	    int rd, ex;
 	    /* it may not be safe to ask for this after we handle the task */
 	    anext = actx->next;
