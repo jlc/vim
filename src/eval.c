@@ -17698,7 +17698,8 @@ f_asystem(argvars, rettv)
     ctx->tv_dict.v_lock = VAR_FIXED;
 
     /* decode input arg */
-    if (argvars[3].v_type != VAR_UNKNOWN)
+    if (argvars[2].v_type != VAR_UNKNOWN
+	    && argvars[3].v_type != VAR_UNKNOWN)
     {
 	char_u *p;
 	FILE *fd;
