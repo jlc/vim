@@ -10127,6 +10127,8 @@ free_async_ctx(ctx)
     async_ctx_T *ctx;
 {
     if (ctx) {
+	async_task_list_remove(ctx);
+
 	if (ctx->fd_pipe != -1) {
 	    close(ctx->fd_pipe);
 	    ctx->fd_pipe = -1;
@@ -10195,16 +10197,16 @@ async_task_list_add(ctx)
 async_task_list_remove(ctx)
     async_ctx_T	*ctx;
 {
-    async_ctx_T	**p=&async_task_list, *e;
+    async_ctx_T	**pprev=&async_task_list, *ent;
 
-    for (e=async_task_list; e; e=e->next) {
-	if (e == ctx) {
-	    *p = e->next;
-	    e->next = NULL;
+    for (ent=async_task_list; ent; ent=ent->next) {
+	if (ent == ctx) {
+	    *pprev = ent->next;
+	    ent->next = NULL;
 	    return;
 	}
 
-	p = &e->next;
+	pprev = &ent->next;
     }
 
     return;
