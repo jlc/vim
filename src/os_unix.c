@@ -232,7 +232,7 @@ static int build_argv __ARGS((char_u *newsh, const char_u *cmd, int *argc, char 
 static void simulate_dumb_terminal __ARGS((void));
 
 #ifdef FEAT_ASYNC
-static void queue_running_task __ARGS((async_ctx_T *ctx));
+static void handle_async_task __ARGS((async_ctx_T *ctx, int read_event, int expt_event));
 #endif
 
 #ifdef SYS_SIGLIST_DECLARED
@@ -4745,6 +4745,7 @@ mch_start_async_shell(ctx, cmd)
     int		argc = 0;
     int		fd_fromshell[2];
     int		pipe_error = FALSE;
+    int		flags;
 
     infile = (const char *)ctx->infile;
     if (!infile)
@@ -4803,8 +4804,20 @@ mch_start_async_shell(ctx, cmd)
     close(fd_fromshell[1]);
     ctx->fd_pipe = fd_fromshell[0];
 
+    /* make it non blocking */
+#if defined(O_NONBLOCK)
+    /* Fixme: O_NONBLOCK is defined but broken on SunOS 4.1.x and AIX 3.2.5. */
+    if (-1 == (flags = fcntl(ctx->fd_pipe, F_GETFL, 0)))
+	flags = 0;
+    fcntl(ctx->fd_pipe, F_SETFL, flags | O_NONBLOCK);
+#else
+    /* Otherwise, use the old way of doing it */
+    flags = 1;
+    ioctl(ctx->fd_pipe, FIOBIO, &flags);
+#endif
+
     ctx->pid = pid;
-    queue_running_task(ctx);
+    async_task_list_add(ctx);
 
     return pid;
 
@@ -4823,35 +4836,50 @@ error_open_infile:
 }
 
     static void
-queue_running_task (ctx)
+handle_async_task (ctx, read_event, expt_event)
     async_ctx_T *ctx;
+    int		read_event;
+    int		expt_event;
 {
 #define BUF_SIZE 4096
     char_u buf[BUF_SIZE];
     int len, rc, status;
+    int terminate = expt_event;
 
-    while ((len = read(ctx->fd_pipe, buf, BUF_SIZE)) > 0) {
+    if (read_event) {
+	len = read(ctx->fd_pipe, buf, BUF_SIZE);
+	if (len <= 0)
+	    /* failed to read, or got to the end */
+	    terminate = 1;
 
-	buf[len] = 0;
+	if (len >= 0) {
+	    /* read or got to the end */
+	    buf[len] = 0;
 
-	if (ctx->callback(ctx, buf, len))
-	    break;
+	    /* even if we get a len of zero, we call back one last time */
+	    if (ctx->callback(ctx, buf, len))
+		/* non-zero return from callback terminates the process */
+		terminate = 1;
+	}
     }
 
-    if ( waitpid(ctx->pid, &status, WNOHANG) == 0 ) {
-	// child is still running
-	
-	// TODO: this needs to be handled better
-	// ... what if your process doesn't quit politely?
-	kill(ctx->pid, SIGTERM);
+    if (terminate) {
+	if ( waitpid(ctx->pid, &status, WNOHANG) == 0 ) {
+	    // child is still running
 
-	rc = waitpid(ctx->pid, &status, 0);
-	// TODO: again, needs better handling
-	
-	// TODO: convert above waitpid's to be compatible with wait4()
+	    // TODO: this needs to be handled better
+	    // ... what if your process doesn't quit politely?
+	    kill(ctx->pid, SIGTERM);
+
+	    rc = waitpid(ctx->pid, &status, 0);
+	    // TODO: again, needs better handling
+
+	    // TODO: convert above waitpid's to be compatible with wait4()
+	}
+
+	async_task_list_remove(ctx);
+	free_async_ctx(ctx);
     }
-
-    free_async_ctx(ctx);
 }
 
 #endif
@@ -4982,6 +5010,9 @@ RealWaitForChar(fd, msec, check_for_gpm)
      * should wait after being interrupted. */
 #  define USE_START_TV
     struct timeval  start_tv;
+#if HAVE_ASYNC_SHELL
+    async_ctx_T *actx, *anext;
+#endif
 
     if (msec > 0 && (
 #  ifdef FEAT_XCLIPBOARD
@@ -5242,6 +5273,13 @@ RealWaitForChar(fd, msec, check_for_gpm)
 		maxfd = nb_fd;
 	}
 #endif
+#if HAVE_ASYNC_SHELL
+	for (actx=async_task_list_head(); actx; actx=actx->next) {
+	    FD_SET(actx->fd_pipe, &rfds);
+	    if (maxfd < actx->fd_pipe)
+		maxfd = actx->fd_pipe;
+	}
+#endif
 
 # ifdef OLD_VMS
 	/* Old VMS as v6.2 and older have broken select(). It waits more than
@@ -5324,6 +5362,18 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	{
 	    netbeans_read();
 	    --ret;
+	}
+#endif
+#if HAVE_ASYNC_SHELL
+	for (actx=async_task_list_head(); actx; actx=anext) {
+	    int rd, ex;
+	    /* it may not be safe to ask for this after we handle the task */
+	    anext = actx->next;
+	    /* handle the async task if it has an event */
+	    rd = FD_ISSET(actx->fd_pipe, &rfds);
+	    ex = FD_ISSET(actx->fd_pipe, &efds);
+	    if (rd || ex)
+		handle_async_task(actx, rd, ex);
 	}
 #endif
 

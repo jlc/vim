@@ -17454,6 +17454,7 @@ f_asystem(argvars, rettv)
 {
     int		err = TRUE;
     int		pid = -1;
+    char_u	*func = NULL;
     async_ctx_T *ctx = NULL;
 
     if (check_restricted() || check_secure())
@@ -17466,11 +17467,14 @@ f_asystem(argvars, rettv)
     }
 
     if (argvars[0].v_type == VAR_FUNC)
-	ctx->func = argvars[0].vval.v_string;
+	func = argvars[0].vval.v_string;
     else
-	ctx->func = get_tv_string(&argvars[0]);
+	func = get_tv_string(&argvars[0]);
+
+    if (func)
+	ctx->func = vim_strsave(func);
     if (*(ctx->func) == NUL)
-	goto done;		/* type error or empty name */
+	goto done;
 
     if (argvars[2].v_type != VAR_UNKNOWN)
     {
