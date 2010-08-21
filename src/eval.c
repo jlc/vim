@@ -6651,6 +6651,9 @@ garbage_collect()
 #ifdef FEAT_WINDOWS
     tabpage_T	*tp;
 #endif
+#ifdef FEAT_ASYNC
+    async_ctx_T *actx;
+#endif
 
     /* Only do this once. */
     want_garbage_collect = FALSE;
@@ -6703,6 +6706,11 @@ garbage_collect()
 	set_ref_in_ht(&fc->l_vars.dv_hashtab, copyID);
 	set_ref_in_ht(&fc->l_avars.dv_hashtab, copyID);
     }
+
+#ifdef FEAT_ASYNC
+    for (actx=async_task_list_head(); actx; actx=actx->next)
+        set_ref_in_item(&actx->tv_dict, copyID);
+#endif
 
     /* v: vars */
     set_ref_in_ht(&vimvarht, copyID);
