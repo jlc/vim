@@ -5030,7 +5030,11 @@ RealWaitForChar(fd, msec, check_for_gpm)
 # endif
 #endif
 #ifndef HAVE_SELECT
+#ifndef HAVE_ASYNC_SHELL
 	struct pollfd   fds[6];
+#else
+	struct pollfd   fds[128]; // need to make this dynamically allocated
+#endif
 	int		nfd;
 # ifdef FEAT_XCLIPBOARD
 	int		xterm_idx = -1;
@@ -5043,6 +5047,9 @@ RealWaitForChar(fd, msec, check_for_gpm)
 # endif
 # ifdef FEAT_NETBEANS_INTG
 	int		nb_idx = -1;
+# endif
+# ifdef HAVE_ASYNC_SHELL
+	int		async_idx = -1;
 # endif
 	int		towait = (int)msec;
 
@@ -5099,6 +5106,15 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	{
 	    nb_idx = nfd;
 	    fds[nfd].fd = nb_fd;
+	    fds[nfd].events = POLLIN;
+	    nfd++;
+	}
+#endif
+#if HAVE_ASYNC_SHELL
+	for (actx=async_task_list_head(); actx; actx=actx->next) {
+	    if (async_idx == -1)
+		async_idx = nfd;
+	    fds[nfd].fd = actx->fd_pipe;
 	    fds[nfd].events = POLLIN;
 	    nfd++;
 	}
@@ -5161,6 +5177,28 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	{
 	    netbeans_read();
 	    --ret;
+	}
+#endif
+#if HAVE_ASYNC_SHELL
+	if (ret > 0 && async_idx != -1) {
+	    int idx = async_idx;
+	    for (actx=async_task_list_head(); ret>0 && actx; actx=anext, idx++) {
+		int rd, ex;
+		/* it may not be safe to ask for this after we handle the task */
+		anext = actx->next;
+		/* handle the async task if it has an event */
+		rd = fds[idx].revents & POLLIN;
+		ex = fds[idx].revents & POLLHUP;
+		if (rd || ex) {
+		    /* avoid recursion when handling async task */
+		    busy = TRUE;
+		    handle_async_task(actx, rd, ex);
+		    busy = FALSE;
+		    --ret;
+		}
+	    }
+	    if (ret == 0)
+		finished = FALSE;	/* Try again */
 	}
 #endif
 
