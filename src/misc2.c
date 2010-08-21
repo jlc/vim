@@ -2026,7 +2026,8 @@ ga_grow(gap, n)
     size_t	len;
     char_u	*pp;
 
-    if (gap->ga_maxlen - gap->ga_len < n)
+    if (gap->ga_itemsize
+	    && gap->ga_maxlen - gap->ga_len < n)
     {
 	if (n < gap->ga_growsize)
 	    n = gap->ga_growsize;
