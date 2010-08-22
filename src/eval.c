@@ -6639,7 +6639,7 @@ garbage_collect()
     }
 
 #ifdef FEAT_ASYNC
-    for (actx=async_task_list_head(); actx; actx=actx->next)
+    for (actx=async_task_list_head(); actx; actx=actx->all_next)
         set_ref_in_item(&actx->tv_dict, copyID);
 #endif
 

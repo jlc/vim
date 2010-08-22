@@ -232,7 +232,7 @@ static int build_argv __ARGS((char_u *newsh, const char_u *cmd, int *argc, char 
 static void simulate_dumb_terminal __ARGS((void));
 
 #ifdef FEAT_ASYNC
-static void handle_async_task __ARGS((async_ctx_T *ctx, int read_event, int expt_event));
+static void handle_one_async_task __ARGS((async_ctx_T *ctx));
 #endif
 
 #ifdef SYS_SIGLIST_DECLARED
@@ -4816,17 +4816,18 @@ error_open_infile:
 }
 
     static void
-handle_async_task (ctx, read_event, expt_event)
+handle_one_async_task (ctx)
     async_ctx_T *ctx;
-    int		read_event;
-    int		expt_event;
 {
 #define BUF_SIZE 4096
     char_u buf[BUF_SIZE];
     int len, rc, status;
-    int terminate = expt_event;
+    int terminate = (ctx->events & ACE_TERM);
 
-    if (read_event) {
+    if (!ctx->events)
+	return;
+
+    if (ctx->events & ACE_READ) {
 	len = read(ctx->fd_pipe, buf, BUF_SIZE);
 	if (len <= 0)
 	    /* failed to read, or got to the end */
@@ -4842,6 +4843,8 @@ handle_async_task (ctx, read_event, expt_event)
 		terminate = 1;
 	}
     }
+
+    ctx->events = 0;
 
     if (terminate) {
 	if ( waitpid(ctx->pid, &status, WNOHANG) == 0 ) {
@@ -4861,8 +4864,17 @@ handle_async_task (ctx, read_event, expt_event)
     }
 }
 
-#endif
+    void
+mch_handle_async_events ()
+{
+    async_ctx_T *ctx;
 
+    while ((ctx = async_active_task_list_remove_head()))
+    {
+	handle_one_async_task (ctx);
+    }
+}
+#endif
 
 /*
  * Check for CTRL-C typed by reading all available characters.
@@ -4990,7 +5002,7 @@ RealWaitForChar(fd, msec, check_for_gpm)
 #  define USE_START_TV
     struct timeval  start_tv;
 #if HAVE_ASYNC_SHELL
-    async_ctx_T *actx, *anext;
+    async_ctx_T *actx;
 #endif
 
     if (msec > 0 && (
@@ -5182,18 +5194,15 @@ RealWaitForChar(fd, msec, check_for_gpm)
 #if HAVE_ASYNC_SHELL
 	if (ret > 0 && async_idx != -1) {
 	    int idx = async_idx;
-	    for (actx=async_task_list_head(); ret>0 && actx; actx=anext, idx++) {
-		int rd, ex;
-		/* it may not be safe to ask for this after we handle the task */
-		anext = actx->next;
-		/* handle the async task if it has an event */
-		rd = fds[idx].revents & POLLIN;
-		ex = fds[idx].revents & POLLHUP;
+	    for (actx=async_task_list_head(); ret>0 && actx; actx=actx->all_next, idx++) {
+		int rd = fds[idx].revents & POLLIN;
+		int ex = fds[idx].revents & POLLHUP;
+		if (rd)
+		    actx->events |= ACE_READ;
+		if (ex)
+		    actx->events |= ACE_TERM;
 		if (rd || ex) {
-		    /* avoid recursion when handling async task */
-		    busy = TRUE;
-		    handle_async_task(actx, rd, ex);
-		    busy = FALSE;
+		    async_active_task_list_add(actx);
 		    --ret;
 		}
 	    }
@@ -5291,7 +5300,7 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	}
 #endif
 #if HAVE_ASYNC_SHELL
-	for (actx=async_task_list_head(); actx; actx=actx->next) {
+	for (actx=async_task_list_head(); actx; actx=actx->all_next) {
 	    FD_SET(actx->fd_pipe, &rfds);
 	    FD_SET(actx->fd_pipe, &efds);
 	    if (maxfd < actx->fd_pipe)
@@ -5383,18 +5392,15 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	}
 #endif
 #if HAVE_ASYNC_SHELL
-	for (actx=async_task_list_head(); ret>0 && actx; actx=anext) {
-	    int rd, ex;
-	    /* it may not be safe to ask for this after we handle the task */
-	    anext = actx->next;
-	    /* handle the async task if it has an event */
-	    rd = FD_ISSET(actx->fd_pipe, &rfds);
-	    ex = FD_ISSET(actx->fd_pipe, &efds);
+	for (actx=async_task_list_head(); ret>0 && actx; actx=actx->all_next) {
+	    int rd = FD_ISSET(actx->fd_pipe, &rfds);
+	    int ex = FD_ISSET(actx->fd_pipe, &efds);
+	    if (rd)
+		actx->events |= ACE_READ;
+	    if (ex)
+		actx->events |= ACE_TERM;
 	    if (rd || ex) {
-		/* avoid recursion when handling async task */
-		busy = TRUE;
-		handle_async_task(actx, rd, ex);
-		busy = FALSE;
+		async_active_task_list_add(actx);
 		if (--ret == 0)
 		    finished = FALSE;	/* Try again */
 	    }
