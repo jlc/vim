@@ -1261,6 +1261,10 @@ main_loop(cmdwin, noexmode)
 	}
 	else
 	    normal_cmd(&oa, TRUE);
+
+#ifdef FEAT_ASYNC
+	handle_async_events();
+#endif
     }
 }
 

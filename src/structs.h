@@ -2482,15 +2482,23 @@ typedef struct {
 
 #ifdef FEAT_ASYNC
 /*
+ * Async event types
+ */
+#define ACE_READ    1       /* can read from pipe */
+#define ACE_TERM    2       /* got an exception */
+
+/*
  * Async context used internally to handle asystem() state.
  */
 typedef struct _async_ctx {
-    struct _async_ctx *next;/* linked list of all async jobs */
-    char_u	*func;      /* vimscript function */
-    typval_T    tv_dict;    /* vimscript context for func */
-    char_u	*infile;    /* input file name */
-    int		pid;        /* async process ID */
-    int		fd_pipe;    /* fd reading from process */
+    struct _async_ctx *all_next;    /* list of all async jobs */
+    struct _async_ctx *act_next;    /* list of only those with events */
+    char_u	*func;              /* vimscript function */
+    typval_T    tv_dict;            /* vimscript context for func */
+    char_u	*infile;            /* input file name */
+    int		pid;                /* async process ID */
+    int		fd_pipe;            /* fd reading from process */
+    unsigned	events;             /* collection of ACE_* flags */
     int         (*callback)(struct _async_ctx*, char_u*, int len);
 } async_ctx_T;
 #endif
