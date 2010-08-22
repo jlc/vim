@@ -76,5 +76,6 @@ void xsmp_close __ARGS((void));
 #ifdef FEAT_ASYNC
 #define HAVE_ASYNC_SHELL 1
 int mch_start_async_shell __ARGS((async_ctx_T *ctx, char_u *cmd));
+void mch_handle_async_events __ARGS((void));
 #endif
 /* vim: set ft=c : */

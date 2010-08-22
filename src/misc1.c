@@ -10167,36 +10167,45 @@ start_async_task(ctx, cmd)
     return 0;
 #endif
 }
+
+    void
+handle_async_events()
+{
+#ifdef HAVE_ASYNC_SHELL
+    mch_handle_async_events ();
+#endif
+}
 #endif
 
 #if HAVE_ASYNC_SHELL
-static async_ctx_T *async_task_list = NULL;
+static async_ctx_T *async_all_task_list = NULL;
+static async_ctx_T *async_active_task_list = NULL;
 
     void
 async_task_list_add(ctx)
     async_ctx_T	*ctx;
 {
-    if (ctx->next)
+    if (ctx->all_next)
 	return;
 
-    ctx->next = async_task_list;
-    async_task_list = ctx;
+    ctx->all_next = async_all_task_list;
+    async_all_task_list = ctx;
 }
 
     void
 async_task_list_remove(ctx)
     async_ctx_T	*ctx;
 {
-    async_ctx_T	**pprev=&async_task_list, *ent;
+    async_ctx_T	**pprev=&async_all_task_list, *ent;
 
-    for (ent=async_task_list; ent; ent=ent->next) {
+    for (ent=async_all_task_list; ent; ent=ent->all_next) {
 	if (ent == ctx) {
-	    *pprev = ent->next;
-	    ent->next = NULL;
+	    *pprev = ent->all_next;
+	    ent->all_next = NULL;
 	    return;
 	}
 
-	pprev = &ent->next;
+	pprev = &ent->all_next;
     }
 
     return;
@@ -10205,7 +10214,52 @@ async_task_list_remove(ctx)
     async_ctx_T*
 async_task_list_head()
 {
-    return async_task_list;
+    return async_all_task_list;
+}
+
+    void
+async_active_task_list_add(ctx)
+    async_ctx_T	*ctx;
+{
+    if (ctx->act_next)
+	return;
+
+    ctx->act_next = async_active_task_list;
+    async_active_task_list = ctx;
+}
+
+    void
+async_active_task_list_remove(ctx)
+    async_ctx_T	*ctx;
+{
+    async_ctx_T	**pprev=&async_active_task_list, *ent;
+
+    for (ent=async_active_task_list; ent; ent=ent->act_next) {
+	if (ent == ctx) {
+	    *pprev = ent->act_next;
+	    ent->act_next = NULL;
+	    return;
+	}
+
+	pprev = &ent->act_next;
+    }
+
+    return;
+}
+
+    async_ctx_T*
+async_active_task_list_remove_head()
+{
+    async_ctx_T *ctx;
+
+    ctx = async_active_task_list;
+    if (!ctx)
+	return NULL;
+
+    async_active_task_list = ctx->act_next;
+    ctx->act_next = NULL;
+
+    return ctx;
 }
 
 #endif
