@@ -5148,6 +5148,11 @@ RealWaitForChar(fd, msec, check_for_gpm)
      * manager stuff, it may save the file, which does a breakcheck. */
     if (busy)
 	return 0;
+
+#ifdef HAVE_ASYNC_SHELL
+    if (handling_async_events)
+	return 0;
+#endif
 #endif
 
 #ifdef MAY_LOOP
@@ -5565,6 +5570,11 @@ select_eintr:
 	    if (msec <= 0)
 		break;	/* waited long enough */
 	}
+
+#ifdef HAVE_ASYNC_SHELL
+	/* before we loop, handle some events */
+	handle_async_events();
+#endif
 #endif
     }
 

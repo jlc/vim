@@ -447,6 +447,12 @@ EXTERN int	sys_menu INIT(= FALSE);
  * ('lines' and 'rows') must not be changed. */
 EXTERN int	updating_screen INIT(= FALSE);
 
+#ifdef HAVE_ASYNC_SHELL
+/* While executing async callbacks this flag is set.  It is used to prevent
+ * live-updates of the screen from that context. */
+EXTERN int	handling_async_events INIT(= FALSE);
+#endif
+
 #ifdef FEAT_GUI
 # ifdef FEAT_MENU
 /* Menu item just selected, set by check_termcode() */
