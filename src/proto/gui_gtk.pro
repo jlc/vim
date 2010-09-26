@@ -19,4 +19,9 @@ void gui_make_popup __ARGS((char_u *path_name, int mouse_pos));
 void gui_mch_find_dialog __ARGS((exarg_T *eap));
 void gui_mch_replace_dialog __ARGS((exarg_T *eap));
 void ex_helpfind __ARGS((exarg_T *eap));
+#ifdef FEAT_ASYNC
+#define HAVE_GUI_ASYNC
+int gui_mch_register_async_task __ARGS((async_ctx_T *ctx));
+void gui_mch_unregister_async_task __ARGS((async_ctx_T *ctx));
+#endif
 /* vim: set ft=c : */

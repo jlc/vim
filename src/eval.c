@@ -723,6 +723,9 @@ static void f_synconcealed __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_system __ARGS((typval_T *argvars, typval_T *rettv));
 #ifdef FEAT_ASYNC
 static void f_asystem __ARGS((typval_T *argvars, typval_T *rettv));
+static void f_getasyncpids __ARGS((typval_T *argvars, typval_T *rettv));
+static void f_getasynccmd __ARGS((typval_T *argvars, typval_T *rettv));
+static void f_killasync __ARGS((typval_T *argvars, typval_T *rettv));
 #endif
 static void f_tabpagebuflist __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_tabpagenr __ARGS((typval_T *argvars, typval_T *rettv));
@@ -7820,6 +7823,10 @@ static struct fst
     {"function",	1, 1, f_function},
     {"garbagecollect",	0, 1, f_garbagecollect},
     {"get",		2, 3, f_get},
+#ifdef FEAT_ASYNC
+    {"getasyncpidinfo", 1, 1, f_getasynccmd},
+    {"getasyncpids",    0, 0, f_getasyncpids},
+#endif
     {"getbufline",	2, 3, f_getbufline},
     {"getbufvar",	2, 2, f_getbufvar},
     {"getchar",		0, 1, f_getchar},
@@ -7877,6 +7884,9 @@ static struct fst
     {"items",		1, 1, f_items},
     {"join",		1, 2, f_join},
     {"keys",		1, 1, f_keys},
+#ifdef FEAT_ASYNC
+    {"killasync",       1, 1, f_killasync},
+#endif
     {"last_buffer_nr",	0, 0, f_last_buffer_nr},/* obsolete */
     {"len",		1, 1, f_len},
     {"libcall",		3, 3, f_libcall},
@@ -17754,6 +17764,9 @@ f_asystem(argvars, rettv)
     pid = start_async_task(ctx);
     if (pid != -1)
 	err = FALSE;
+    else
+	/* it's not safe to use ctx now */
+	ctx = NULL;
 					
 done:
     if (err && ctx)
@@ -17762,6 +17775,82 @@ done:
     rettv->v_type = VAR_NUMBER;
     rettv->vval.v_number = pid;
 }
+
+/*
+ * "getasyncpids()" function
+ * returns list of numbers representing PIDs of async processes
+ */
+    static void
+f_getasyncpids (argvars, rettv)
+    typval_T	*argvars;
+    typval_T	*rettv;
+{
+    async_ctx_T *ctx;
+
+    if (rettv_list_alloc(rettv) == FAIL)
+	return;
+
+    for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
+	if (list_append_number(rettv->vval.v_list, ctx->pid) == FAIL)
+	    break;
+    }
+}
+
+/*
+ * "getasynccmd({pid})" function
+ * returns command that is running in the async pid
+ */
+    static void
+f_getasynccmd (argvars, rettv)
+    typval_T	*argvars;
+    typval_T	*rettv;
+{
+    async_ctx_T *ctx;
+    int		pid;
+
+    if (argvars[0].v_type != VAR_NUMBER) {
+	EMSG(_(e_invarg));
+	return;
+    }
+    pid = (int)get_tv_number(&argvars[0]);
+
+    for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
+	if (ctx->pid != pid)
+	    continue;
+
+	rettv->v_type = VAR_STRING;
+	rettv->vval.v_string = vim_strsave(ctx->cmd);
+	break;
+    }
+}
+
+/*
+ * "killasync({pid})" function
+ * terminates a running task
+ */
+    static void
+f_killasync (argvars, rettv)
+    typval_T	*argvars;
+    typval_T	*rettv;
+{
+    async_ctx_T *ctx;
+    int		pid;
+
+    if (argvars[0].v_type != VAR_NUMBER) {
+	EMSG(_(e_invarg));
+	return;
+    }
+    pid = (int)get_tv_number(&argvars[0]);
+
+    for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
+	if (ctx->pid != pid)
+	    continue;
+
+	kill_async_task(ctx);
+	break;
+    }
+}
+
 #endif
 
 /*
