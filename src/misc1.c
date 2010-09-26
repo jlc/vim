@@ -10121,6 +10121,7 @@ free_async_ctx(ctx)
 {
     if (ctx) {
 	async_task_list_remove(ctx);
+	async_active_task_list_remove(ctx);
 
 	if (ctx->fd_pipe != -1) {
 	    close(ctx->fd_pipe);
