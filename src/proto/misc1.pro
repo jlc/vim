@@ -100,7 +100,8 @@ int goto_im __ARGS((void));
 async_ctx_T *alloc_async_ctx __ARGS((void));
 void free_async_ctx __ARGS((async_ctx_T *ctx));
 int start_async_task __ARGS((async_ctx_T *ctx));
-void handle_async_events __ARGS((void));
+void kill_async_task __ARGS((async_ctx_T *ctx));
+int handle_async_events __ARGS((void));
 #endif
 #if HAVE_ASYNC_SHELL
 void async_task_list_add __ARGS((async_ctx_T *ctx));

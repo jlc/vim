@@ -10189,6 +10189,19 @@ start_async_task(ctx)
 #endif
 }
 
+/*
+ * Terminate an async task.
+ * On success, the ctx object cannot be used by the caller.
+ */
+    void
+kill_async_task(ctx)
+    async_ctx_T *ctx;
+{
+#if HAVE_ASYNC_SHELL
+    mch_kill_async_shell(ctx);
+#endif
+}
+
 /* run through all async events that need work,
  * return number handled */
     int

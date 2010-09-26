@@ -4834,6 +4834,14 @@ error_open_infile:
     return -1;
 }
 
+    void
+mch_kill_async_shell(ctx)
+    async_ctx_T *ctx;
+{
+    ctx->events |= ACE_TERM;
+    kill(ctx->pid, SIGTERM);
+}
+
     static void
 handle_one_async_task (ctx)
     async_ctx_T *ctx;
