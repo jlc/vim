@@ -4831,9 +4831,8 @@ error:
  * Returns -1 on failure, pid value on success.
  */
     int
-mch_start_async_shell(ctx, cmd)
+mch_start_async_shell(ctx)
     async_ctx_T *ctx;
-    char_u	*cmd;
 {
     int		pid = -1;
     const char	*infile;
@@ -4858,7 +4857,7 @@ mch_start_async_shell(ctx, cmd)
     if (newcmd == NULL)		/* out of memory */
 	goto error_newcmd;
 
-    if (!build_argv(newcmd, cmd, &argc, &argv)) {
+    if (!build_argv(newcmd, ctx->cmd, &argc, &argv)) {
 	MSG_PUTS(_("\nCannot build argument list\n"));
 	goto error_build_argv;
     }

@@ -17749,7 +17749,9 @@ f_asystem(argvars, rettv)
 
     ctx->callback = asystem_callback;
 
-    pid = start_async_task(ctx, get_tv_string(&argvars[1]));
+    ctx->cmd = vim_strsave(get_tv_string(&argvars[1]));
+
+    pid = start_async_task(ctx);
     if (pid != -1)
 	err = FALSE;
 					
