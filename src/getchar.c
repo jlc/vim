@@ -1478,6 +1478,9 @@ using_script()
 before_blocking()
 {
     updatescript(0);
+#ifdef HAVE_ASYNC_SHELL
+    handle_async_events();
+#endif
 #ifdef FEAT_EVAL
     if (may_garbage_collect)
 	garbage_collect();

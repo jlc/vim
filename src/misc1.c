@@ -10105,6 +10105,9 @@ alloc_async_ctx()
 
     ctx->pid = -1;
     ctx->fd_pipe = -1;
+#ifdef FEAT_GUI
+    ctx->gdk_input_tag = -1;
+#endif
 
     return ctx;
 }
@@ -10138,6 +10141,8 @@ free_async_ctx(ctx)
 	if (!ctx->tv_dict.v_lock)
 	    clear_tv(&ctx->tv_dict);
 
+	gui_mch_unregister_async_task(ctx);
+
 	vim_free(ctx);
     }
 }
@@ -10152,7 +10157,18 @@ start_async_task(ctx, cmd)
     char_u	*cmd;
 {
 #if HAVE_ASYNC_SHELL
-    return mch_start_async_shell(ctx, cmd);
+    int res;
+
+    res = mch_start_async_shell(ctx, cmd);
+
+#if 0
+#ifdef HAVE_GUI_ASYNC
+    if (res != -1)
+	gui_mch_register_async_task(ctx);
+#endif
+#endif
+
+    return res;
 
 #else /* don't HAVE_ASYNC_SHELL, fake it */
     char_u	*data = NULL;
@@ -10168,23 +10184,26 @@ start_async_task(ctx, cmd)
 #endif
 }
 
-    void
+/* run through all async events that need work,
+ * return number handled */
+    int
 handle_async_events()
 {
-    /* this function is modeled after eval_client_expr_to_string() */
+    int		count = 0;
 #ifdef HAVE_ASYNC_SHELL
+    /* this function is modeled after eval_client_expr_to_string() */
     int		save_dbl = debug_break_level;
     int		save_ro = redir_off;
 
     if (handling_async_events)
-	return;
+	return 0;
 
     debug_break_level = -1;
     redir_off = 0;
     ++emsg_skip;
 
     handling_async_events = TRUE;
-    mch_handle_async_events ();
+    count = mch_handle_async_events ();
     handling_async_events = FALSE;
 
     debug_break_level = save_dbl;
@@ -10200,6 +10219,7 @@ handle_async_events()
 	gui_update_cursor(FALSE, FALSE);
 #endif
 #endif
+    return count;
 }
 #endif
 

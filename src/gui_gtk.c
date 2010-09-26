@@ -1879,3 +1879,54 @@ ex_helpfind(eap)
      * backwards compatibility anyway. */
     do_cmdline_cmd((char_u *)"emenu ToolBar.FindHelp");
 }
+
+#ifdef FEAT_ASYNC
+
+    static void
+gdk_handle_event_callback (gpointer data, gint source, GdkInputCondition condition)
+{
+    async_ctx_T *ctx = (async_ctx_T*)data;
+
+    if (!ctx)
+	return;
+
+    if (condition & GDK_INPUT_READ)
+	ctx->events |= ACE_READ;
+    if (condition & GDK_INPUT_EXCEPTION)
+	ctx->events |= ACE_TERM;
+
+    if (ctx->events)
+	async_active_task_list_add(ctx);
+
+    /* After handling this event, remove it from the gdk main loop, to prevent
+     * g_main_context_iteration() from getting stuck in an endless loop.
+     * It will be added again in gui_wait_for_chars() */
+    gui_mch_unregister_async_task(ctx);
+}
+
+    int
+gui_mch_register_async_task(async_ctx_T *ctx)
+{
+    if (!ctx || ctx->gdk_input_tag != -1L)
+	return FAIL;
+
+    ctx->gdk_input_tag = gdk_input_add(ctx->fd_pipe,
+	    GDK_INPUT_READ | GDK_INPUT_EXCEPTION,
+	    gdk_handle_event_callback, ctx);
+
+    return OK;
+}
+
+    void
+gui_mch_unregister_async_task(async_ctx_T *ctx)
+{
+    if (!ctx || ctx->gdk_input_tag == -1L)
+	return;
+
+    gdk_input_remove(ctx->gdk_input_tag);
+
+    ctx->gdk_input_tag = -1L;
+}
+
+
+#endif
