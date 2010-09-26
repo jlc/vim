@@ -2474,6 +2474,7 @@ typedef struct {
 typedef struct _async_ctx {
     struct _async_ctx *all_next;    /* list of all async jobs */
     struct _async_ctx *act_next;    /* list of only those with events */
+    char_u	*cmd;               /* command being ran */
     char_u	*func;              /* vimscript function */
     typval_T    tv_dict;            /* vimscript context for func */
     char_u	*infile;            /* input file name */

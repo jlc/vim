@@ -10133,6 +10133,11 @@ free_async_ctx(ctx)
 	    ctx->infile = NULL;
 	}
 
+	if (ctx->cmd) {
+	    vim_free(ctx->cmd);
+	    ctx->cmd = NULL;
+	}
+
 	if (ctx->func) {
 	    vim_free(ctx->func);
 	    ctx->func = NULL;
@@ -10150,28 +10155,25 @@ free_async_ctx(ctx)
 /*
  * Start a new async task.  ctx->callback will be called with data.
  * Returns -1 on failure, >=0 on success.
+ * On success, the ctx object cannot be used by the caller.
  */
     int
-start_async_task(ctx, cmd)
+start_async_task(ctx)
     async_ctx_T *ctx;
-    char_u	*cmd;
 {
 #if HAVE_ASYNC_SHELL
     int res;
 
-    res = mch_start_async_shell(ctx, cmd);
-
-#if 0
-#ifdef HAVE_GUI_ASYNC
-    if (res != -1)
-	gui_mch_register_async_task(ctx);
-#endif
-#endif
+    res = mch_start_async_shell(ctx);
 
     return res;
 
 #else /* don't HAVE_ASYNC_SHELL, fake it */
-    char_u	*data = NULL;
+    char_u	*data, *cmd;
+
+    /* cmd is consumed by get_cmd_output() */
+    cmd = ctx->cmd;
+    ctx->cmd = NULL;
 
     data = get_cmd_output(cmd, ctx->infile, SHELL_SILENT | SHELL_COOKED);
 
@@ -10179,6 +10181,8 @@ start_async_task(ctx, cmd)
 
     if (data)
 	vim_free(data);
+
+    free_async_ctx(ctx);
 
     return 0;
 #endif
