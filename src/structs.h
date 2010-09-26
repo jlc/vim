@@ -2500,5 +2500,8 @@ typedef struct _async_ctx {
     int		fd_pipe;            /* fd reading from process */
     unsigned	events;             /* collection of ACE_* flags */
     int         (*callback)(struct _async_ctx*, char_u*, int len);
+#ifdef FEAT_GUI
+    long	gdk_input_tag;      /* used for gdk_input_remove(), not used if -1L */
+#endif
 } async_ctx_T;
 #endif

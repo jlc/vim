@@ -5335,8 +5335,17 @@ gui_mch_draw_part_cursor(int w, int h, guicolor_T color)
     void
 gui_mch_update(void)
 {
-    while (g_main_context_pending(NULL) && !vim_is_input_buf_full())
+    static int busy = 0;
+
+    if (busy)
+	return;
+
+    busy = 1;
+    while (g_main_context_pending(NULL) && !vim_is_input_buf_full()) {
 	g_main_context_iteration(NULL, TRUE);
+	//handle_async_events();
+    }
+    busy = 0;
 }
 
     static gint

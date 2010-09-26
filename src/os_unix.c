@@ -4982,15 +4982,19 @@ handle_one_async_task (ctx)
     }
 }
 
-    void
+    int
 mch_handle_async_events ()
 {
+    int count = 0;
     async_ctx_T *ctx;
 
     while ((ctx = async_active_task_list_remove_head()))
     {
 	handle_one_async_task (ctx);
+	count ++;
     }
+
+    return count;
 }
 #endif
 

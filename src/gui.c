@@ -2791,6 +2791,29 @@ gui_insert_lines(row, count)
     }
 }
 
+    static void
+gui_enable_async_events()
+{
+#ifdef HAVE_GUI_ASYNC
+    async_ctx_T *ctx;
+    if (!handling_async_events) {
+	for (ctx=async_task_list_head(); ctx; ctx = ctx->all_next)
+	    gui_mch_register_async_task(ctx);
+    }
+#endif
+}
+    static void
+gui_disable_async_events()
+{
+#ifdef HAVE_GUI_ASYNC
+    async_ctx_T *ctx;
+    if (!handling_async_events) {
+	for (ctx=async_task_list_head(); ctx; ctx = ctx->all_next)
+	    gui_mch_unregister_async_task(ctx);
+    }
+#endif
+}
+
 /*
  * The main GUI input routine.	Waits for a character from the keyboard.
  * wtime == -1	    Wait forever.
@@ -2828,7 +2851,9 @@ gui_wait_for_chars(wtime)
 	/* Blink when waiting for a character.	Probably only does something
 	 * for showmatch() */
 	gui_mch_start_blink();
+	gui_enable_async_events();
 	retval = gui_mch_wait_for_chars(wtime);
+	gui_disable_async_events();
 	gui_mch_stop_blink();
 	return retval;
     }
@@ -2837,6 +2862,7 @@ gui_wait_for_chars(wtime)
      * While we are waiting indefinitely for a character, blink the cursor.
      */
     gui_mch_start_blink();
+    gui_enable_async_events();
 
     retval = FAIL;
     /*
@@ -2868,7 +2894,13 @@ gui_wait_for_chars(wtime)
 	retval = gui_mch_wait_for_chars(-1L);
     }
 
+    gui_disable_async_events();
     gui_mch_stop_blink();
+
+#ifdef HAVE_ASYNC_SHELL
+    handle_async_events();
+#endif
+
     return retval;
 }
 
