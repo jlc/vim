@@ -350,7 +350,12 @@ update_screen(type)
 
     /* Postpone the redrawing when it's not needed and when being called
      * recursively. */
-    if (!redrawing() || updating_screen)
+    if (!redrawing() || updating_screen
+#ifdef HAVE_ASYNC_SHELL
+    /* don't update anything if we are being called from an event handler */
+	    || handling_async_events
+#endif
+    )
     {
 	redraw_later(type);		/* remember type for next time */
 	must_redraw = type;

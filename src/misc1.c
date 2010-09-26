@@ -10171,8 +10171,34 @@ start_async_task(ctx, cmd)
     void
 handle_async_events()
 {
+    /* this function is modeled after eval_client_expr_to_string() */
 #ifdef HAVE_ASYNC_SHELL
+    int		save_dbl = debug_break_level;
+    int		save_ro = redir_off;
+
+    if (handling_async_events)
+	return;
+
+    debug_break_level = -1;
+    redir_off = 0;
+    ++emsg_skip;
+
+    handling_async_events = TRUE;
     mch_handle_async_events ();
+    handling_async_events = FALSE;
+
+    debug_break_level = save_dbl;
+    redir_off = save_ro;
+    --emsg_skip;
+
+    /* A client can tell us to redraw, but not to display the cursor, so do
+     * that here. */
+    setcursor();
+    out_flush();
+#ifdef FEAT_GUI
+    if (gui.in_use)
+	gui_update_cursor(FALSE, FALSE);
+#endif
 #endif
 }
 #endif
