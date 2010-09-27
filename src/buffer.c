@@ -3002,6 +3002,9 @@ fileinfo(fullname, shorthelp, dont_truncate)
     char_u	*buffer;
     size_t	len;
 
+    if (handling_async_events)
+	return;
+
     buffer = alloc(IOSIZE);
     if (buffer == NULL)
 	return;

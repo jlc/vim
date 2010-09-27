@@ -9130,6 +9130,9 @@ apply_autocmds_group(event, fname, fname_io, force, group, buf, eap)
     proftime_T	wait_time;
 #endif
 
+    if (handling_async_events)
+	goto BYPASS_AU;
+
     /*
      * Quickly return if there are no autocommands for this event or
      * autocommands are blocked.
