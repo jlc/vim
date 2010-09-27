@@ -3002,8 +3002,10 @@ fileinfo(fullname, shorthelp, dont_truncate)
     char_u	*buffer;
     size_t	len;
 
+#ifdef HAVE_ASYNC_SHELL
     if (handling_async_events)
 	return;
+#endif
 
     buffer = alloc(IOSIZE);
     if (buffer == NULL)
