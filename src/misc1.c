@@ -10124,6 +10124,7 @@ free_async_ctx(ctx)
 	async_active_task_list_remove(ctx);
 
 	if (ctx->fd_pipe != -1) {
+	    ctx->callback(ctx, (char_u*)"", 0);
 	    close(ctx->fd_pipe);
 	    ctx->fd_pipe = -1;
 	}
@@ -10146,6 +10147,11 @@ free_async_ctx(ctx)
 
 	if (!ctx->tv_dict.v_lock)
 	    clear_tv(&ctx->tv_dict);
+
+	if (ctx->linefrag) {
+	    vim_free(ctx->linefrag);
+	    ctx->linefrag = NULL;
+	}
 
 	gui_mch_unregister_async_task(ctx);
 
