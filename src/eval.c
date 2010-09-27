@@ -17621,10 +17621,116 @@ asystem_callback(ctx, data, len)
 # endif
 #endif
 
-    funcargv[0].v_type = VAR_STRING;
-    funcargv[0].vval.v_string = vim_strsave(data);
-    funcargv[1].v_type = VAR_NUMBER;
-    funcargv[1].vval.v_number = len;
+    if (!(ctx->flags & ACF_LINELIST)) {
+	funcargv[0].v_type = VAR_STRING;
+	funcargv[0].vval.v_string = vim_strsave(data);
+	funcargv[1].v_type = VAR_NUMBER;
+	funcargv[1].vval.v_number = len;
+
+    } else if (len == 0) {
+	/* this happens when the task is finished,
+	 * we are to flush the pending buffer. */
+	list_T *l;
+
+	if (!ctx->linefrag)
+	    return OK;
+
+	l = list_alloc();
+	if (l == NULL)
+	    return FAIL;
+
+	if (list_append_string(l, ctx->linefrag, 0) == FAIL) {
+	    list_free(l,0);
+	    return FAIL;
+	}
+
+	vim_free(ctx->linefrag);
+	ctx->linefrag = NULL;
+
+	++l->lv_refcount;
+	funcargv[0].v_type = VAR_LIST;
+	funcargv[0].vval.v_list = l;
+	funcargv[1].v_type = VAR_NUMBER;
+	funcargv[1].vval.v_number = 1;
+
+    } else {
+	list_T *l;
+	char_u *s, *p, *e;
+	unsigned count = 0;
+
+	l = list_alloc();
+	if (l == NULL)
+	    return FAIL;
+
+	s = data;     /* start of line */
+	e = data+len; /* end of buffer */
+	while (s < e) {
+	    p = s;    /* end of line */
+	    while (s<e && *p && *p != NL)
+		p++;
+
+	    if (p==e) {
+		if (ctx->linefrag) {
+		    /* add to existing incomplete line */
+		    int olen = STRLEN(ctx->linefrag);
+		    char_u *nlf = vim_strnsave(ctx->linefrag,
+			    olen + (p-s) + 1);
+		    if (!nlf) {
+			list_free(l,0);
+			return FAIL;
+		    }
+		    vim_free(ctx->linefrag);
+		    STRNCPY(nlf + olen, s, p-s);
+		    ctx->linefrag = nlf;
+		} else {
+		    /* store incomplete line */
+		    ctx->linefrag = vim_strnsave(s, p-s);
+		    if (!ctx->linefrag) {
+			list_free(l,0);
+			return FAIL;
+		    }
+		}
+		break;
+	    }
+
+	    if (ctx->linefrag) {
+		/* we have a partial line left over from last run */
+		int olen = STRLEN(ctx->linefrag);
+		char_u *line = vim_strnsave(ctx->linefrag,
+			olen + (p-s) + 1);
+		if (!line) {
+		    list_free(l,0);
+		    return FAIL;
+		}
+		STRNCPY(line + olen, s, p-s);
+		if (list_append_string(l, line, olen + p-s) == FAIL) {
+		    list_free(l,0);
+		    return FAIL;
+		}
+		count ++;
+		vim_free(ctx->linefrag);
+		ctx->linefrag = NULL;
+		count ++;
+
+	    } else {
+		/* this is a complete line */
+		if (list_append_string(l, s, p-s) == FAIL) {
+		    list_free(l,0);
+		    return FAIL;
+		}
+		count ++;
+	    }
+
+	    s = p + 1; /* advance to after the NL */
+	}
+
+	++l->lv_refcount;
+	funcargv[0].v_type = VAR_LIST;
+	funcargv[0].vval.v_list = l;
+	funcargv[1].v_type = VAR_NUMBER;
+	funcargv[1].vval.v_number = count;
+    }
+
     copy_tv(&ctx->tv_dict, &funcargv[2]);
     funcargc = 3;
 
@@ -17651,9 +17757,10 @@ asystem_callback(ctx, data, len)
 }
 
 /*
- * "asystem(func, expr [, ctx [, input]])" function
+ * "asystem(func, expr [, flags [, ctx [, input]]])" function
  * func  - function name or reference to call with data
  * expr  - shell code to execute
+ * flags - string of flags (currently only 'l' is accepted)
  * ctx   - optional dictionary to pass as context
  * input - text to pass to shell as stdin
  */
@@ -17686,39 +17793,44 @@ f_asystem(argvars, rettv)
     if (*(ctx->func) == NUL)
 	goto done;
 
-    /* decode ctx arg */
-    switch (argvars[2].v_type)
-    {
-    case VAR_UNKNOWN: {
-	/* we were not given a dict, create one */
-	dict_T *d = dict_alloc();
-	if (!d) {
-	    EMSG(_("E999: Error allocating dictionary"));
-	    goto done;
+    /* decode flags */
+    if (argvars[2].v_type == VAR_UNKNOWN)
+	goto done_parsing;
+    else if (argvars[2].v_type == VAR_STRING) {
+	char_u *p;
+	p = argvars[2].vval.v_string ? argvars[2].vval.v_string : (char_u*)"";
+	ctx->flags = 0;
+	while (*p) {
+	    switch (*p) {
+	    case 'l':
+		ctx->flags |= ACF_LINELIST;
+		break;
+	    default:
+		EMSG(_(e_invarg));
+		goto done;
+	    }
+	    p++;
 	}
-	/* we own this dictionary */
-	++d->dv_refcount;
-	ctx->tv_dict.v_type = VAR_DICT;
-	ctx->tv_dict.vval.v_dict = d;
-	break;
-    }
-    case VAR_DICT:
-	/* refcount the dict we were given */
-	copy_tv(&argvars[2], &ctx->tv_dict);
-	break;
-
-    default:
-	EMSG(_("E999: Third argument to asystem() needs to be a dictionary."));
+    } else {
+	EMSG(_("E999: Third argument to asystem() needs to be a string."));
 	goto done;
     }
 
-    /* the ctx cannot be replaced */
-    ctx->tv_dict.v_lock = VAR_FIXED;
+    /* decode ctx arg */
+    if (argvars[3].v_type == VAR_UNKNOWN)
+	goto done_parsing;
+    else if (argvars[3].v_type == VAR_DICT) {
+	/* refcount the dict we were given */
+	copy_tv(&argvars[3], &ctx->tv_dict);
+    } else {
+	EMSG(_("E999: Fourth argument to asystem() needs to be a dictionary."));
+	goto done;
+    }
 
     /* decode input arg */
-    if (argvars[2].v_type != VAR_UNKNOWN
-	    && argvars[3].v_type != VAR_UNKNOWN)
-    {
+    if (argvars[4].v_type == VAR_UNKNOWN)
+	goto done_parsing;
+    else {
 	char_u *p;
 	FILE *fd;
 	char_u buf[NUMBUFLEN];
@@ -17739,7 +17851,7 @@ f_asystem(argvars, rettv)
 	    EMSG2(_(e_notopen), ctx->infile);
 	    goto done;
 	}
-	p = get_tv_string_buf_chk(&argvars[3], buf);
+	p = get_tv_string_buf_chk(&argvars[4], buf);
 	if (p == NULL)
 	{
 	    fclose(fd);
@@ -17756,6 +17868,24 @@ f_asystem(argvars, rettv)
 	    goto done;
 	}
     }
+
+done_parsing:
+    if (!ctx->tv_dict.vval.v_dict) {
+	/* we were not given a dict argument, create one */
+	dict_T *d = dict_alloc();
+	if (!d) {
+	    EMSG(_("E999: Error allocating dictionary"));
+	    goto done;
+	}
+	/* we own this dictionary */
+	++d->dv_refcount;
+	ctx->tv_dict.v_type = VAR_DICT;
+	ctx->tv_dict.vval.v_dict = d;
+    }
+
+    /* the ctx cannot be replaced */
+    ctx->tv_dict.v_lock = VAR_FIXED;
+
 
     ctx->callback = asystem_callback;
 
