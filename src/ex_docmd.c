@@ -485,6 +485,14 @@ static void	ex_folddo __ARGS((exarg_T *eap));
 # define ex_profile		ex_ni
 #endif
 
+#ifdef FEAT_ASYNC
+static void ex_ajobs __ARGS((exarg_T *eap));
+static void ex_akill __ARGS((exarg_T *eap));
+#else
+# define ex_ajobs		ex_ni
+# define ex_akill		ex_ni
+#endif
+
 /*
  * Declare cmdnames[].
  */
@@ -11326,5 +11334,45 @@ ex_folddo(eap)
     /* Execute the command on the marked lines. */
     global_exe(eap->arg);
     ml_clearmarked();	   /* clear rest of the marks */
+}
+#endif
+
+#ifdef FEAT_ASYNC
+    static void
+ex_ajobs(eap)
+    exarg_T	*eap;
+{
+    async_ctx_T *ctx;
+    for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
+	msg_putchar('\n');
+	vim_snprintf((char *)IObuff, IOSIZE, "%5d  %c%c  \"%s\"",
+		ctx->pid,
+		(ctx->events & ACE_READ) ? 'r' : ' ',
+		(ctx->events & ACE_TERM) ? '!' : ' ',
+		ctx->cmd);
+	msg_outtrans(IObuff);
+	out_flush();
+	ui_breakcheck();
+    }
+}
+
+    static void
+ex_akill(eap)
+    exarg_T	*eap;
+{
+    async_ctx_T *ctx;
+    int		pid;
+
+    pid = atol((char *)eap->arg);
+
+    for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
+	if (!eap->forceit && ctx->pid != pid)
+	    continue;
+
+	kill_async_task(ctx);
+
+	if (!eap->forceit)
+	    break;
+    }
 }
 #endif
