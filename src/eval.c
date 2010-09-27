@@ -7672,7 +7672,7 @@ static struct fst
     {"asin",		1, 1, f_asin},	/* WJMc */
 #endif
 #ifdef FEAT_ASYNC
-    {"asystem",		2, 3, f_asystem},
+    {"asystem",		2, 5, f_asystem},
 #endif
 #ifdef FEAT_FLOAT
     {"atan",		1, 1, f_atan},
