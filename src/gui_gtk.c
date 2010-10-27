@@ -1913,7 +1913,7 @@ gui_mch_register_async_task(async_ctx_T *ctx)
     if (!ctx || ctx->gdk_input_tag != -1L)
 	return FAIL;
 
-    ctx->gdk_input_tag = gdk_input_add(ctx->fd_pipe,
+    ctx->gdk_input_tag = gdk_input_add(ctx->fd_pipe_fromshell,
 	    GDK_INPUT_READ | GDK_INPUT_EXCEPTION,
 	    gdk_handle_event_callback, ctx);
 

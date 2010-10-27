@@ -2498,16 +2498,13 @@ typedef struct {
 typedef struct _async_ctx {
     struct _async_ctx *all_next;    /* list of all async jobs */
     struct _async_ctx *act_next;    /* list of only those with events */
-    char_u	*cmd;               /* command being ran */
-    char_u	*func;              /* vimscript function */
+    char_u	*cmd;               /* command being ran. Its set in start_async_task */
     unsigned	flags;              /* collection of ACF_* flags */
     typval_T    tv_dict;            /* vimscript context for func */
-    char_u	*infile;            /* input file name */
     int		pid;                /* async process ID */
-    int		fd_pipe;            /* fd reading from process */
+    int		fd_pipe_fromshell;  /* fd reading from process */
+    int		fd_pipe_toshell;    /* fd for writing to STDIN of process */
     unsigned	events;             /* collection of ACE_* flags */
-    char_u	*linefrag;          /* partial line when using ACF_LINELIST */
-    int         (*callback)(struct _async_ctx*, char_u*, int len);
 #ifdef FEAT_GUI
     long	gdk_input_tag;      /* used for gdk_input_remove(), not used if -1L */
 #endif

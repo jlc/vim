@@ -4835,23 +4835,13 @@ mch_start_async_shell(ctx)
     async_ctx_T *ctx;
 {
     int		pid = -1;
-    const char	*infile;
-    int		fd_infile;
     char_u	*newcmd = NULL;
     char	**argv = NULL;
     int		argc = 0;
     int		fd_fromshell[2];
+    int		fd_toshell[2];
     int		pipe_error = FALSE;
     int		flags;
-
-    infile = (const char *)ctx->infile;
-    if (!infile)
-	infile = "/dev/null";
-    fd_infile = open(infile, O_RDONLY, 0);
-    if (!fd_infile) {
-	MSG_PUTS(_("\nCannot open temp infile.\n"));
-	goto error_open_infile;
-    }
 
     newcmd = vim_strsave(p_sh);
     if (newcmd == NULL)		/* out of memory */
@@ -4862,7 +4852,16 @@ mch_start_async_shell(ctx)
 	goto error_build_argv;
     }
 
+    fd_toshell[0] = -1; // if creating fd_fromshell fails fd_toshell should be NULL when tidying up
+    fd_toshell[1] = -1;
+
+    // create communication pipes:
     pipe_error = (pipe(fd_fromshell) < 0);
+    if (pipe_error) {
+	MSG_PUTS(_("\nCannot create pipe\n"));
+	goto error_pipe;
+    }
+    pipe_error = (pipe(fd_toshell) < 0);
     if (pipe_error) {
 	MSG_PUTS(_("\nCannot create pipe\n"));
 	goto error_pipe;
@@ -4879,9 +4878,10 @@ mch_start_async_shell(ctx)
 	simulate_dumb_terminal();
 
 	/* set up stdin for the child */
+	close(fd_toshell[1]);
 	close(0);
-	ignored = dup(fd_infile);
-	close(fd_infile);
+	ignored = dup(fd_toshell[0]);
+	close(fd_toshell[0]);
 
 	/* set up stdout/stderr for the child */
 	close(fd_fromshell[0]);
@@ -4896,21 +4896,22 @@ mch_start_async_shell(ctx)
     }
 
     /* parent */
-    close(fd_infile);
 
     close(fd_fromshell[1]);
-    ctx->fd_pipe = fd_fromshell[0];
+    ctx->fd_pipe_fromshell = fd_fromshell[0];
+    close(fd_toshell[0]);
+    ctx->fd_pipe_toshell = fd_toshell[1];
 
     /* make it non blocking */
 #if defined(O_NONBLOCK)
     /* Fixme: O_NONBLOCK is defined but broken on SunOS 4.1.x and AIX 3.2.5. */
-    if (-1 == (flags = fcntl(ctx->fd_pipe, F_GETFL, 0)))
+    if (-1 == (flags = fcntl(ctx->fd_pipe_fromshell, F_GETFL, 0)))
 	flags = 0;
-    fcntl(ctx->fd_pipe, F_SETFL, flags | O_NONBLOCK);
+    fcntl(ctx->fd_pipe_fromshell, F_SETFL, flags | O_NONBLOCK);
 #else
     /* Otherwise, use the old way of doing it */
     flags = 1;
-    ioctl(ctx->fd_pipe, FIOBIO, &flags);
+    ioctl(ctx->fd_pipe_fromshell, FIOBIO, &flags);
 #endif
 
     ctx->pid = pid;
@@ -4921,14 +4922,13 @@ mch_start_async_shell(ctx)
 error_fork:
 	close(fd_fromshell[0]);
 	close(fd_fromshell[1]);
+	close(fd_toshell[0]);
+	close(fd_toshell[1]);
 error_pipe:
     vim_free(argv);
 error_build_argv:
     vim_free(newcmd);
 error_newcmd:
-    close(fd_infile);
-error_open_infile:
-
     return -1;
 }
 
@@ -4941,11 +4941,68 @@ mch_kill_async_shell(ctx)
 }
 
     static void
+async_call_receive(ctx, data, len)
+    async_ctx_T *ctx;
+    char_u      *data;
+    int		len;
+{
+    typval_T	funcargv[2];
+    typval_T	funcrettv;
+
+#ifdef USE_CR
+    /* translate <CR> into <NL> */
+    if (data != NULL)
+    {
+	char_u	*s;
+
+	for (s = data; *s; ++s)
+	{
+	    if (*s == CAR)
+		*s = NL;
+	}
+    }
+#else
+# ifdef USE_CRNL
+    /* translate <CR><NL> into <NL> */
+    if (data != NULL)
+    {
+	char_u	*s, *d;
+
+	d = data;
+	for (s = data; *s; ++s)
+	{
+	    if (s[0] == CAR && s[1] == NL)
+		++s;
+	    *d++ = *s;
+	}
+	*d = NUL;
+    }
+# endif
+#endif
+
+
+    /* prepare argument. If flag ACF_LINELIST (aslines) is set pass a list */
+
+    // it looks like copy_tv copying the string. So I hope this is safe to do ..
+    funcargv[0].v_type = VAR_STRING;
+    funcargv[0].vval.v_string = "stdout";
+    funcargv[1].v_type = VAR_STRING;
+    funcargv[1].vval.v_string = data;
+
+    vim_memset(&funcrettv, 0, sizeof(typval_T));
+
+    async_call_func(&ctx->tv_dict, "receive", 2, &funcargv[0]);
+
+}
+
+
+
+    static void
 handle_one_async_task (ctx)
     async_ctx_T *ctx;
 {
 #define BUF_SIZE 4096
-    char_u buf[BUF_SIZE];
+    char_u buf[BUF_SIZE + 1];
     int len, rc, status;
     int terminate = (ctx->events & ACE_TERM);
 
@@ -4953,20 +5010,20 @@ handle_one_async_task (ctx)
 	return;
 
     if (ctx->events & ACE_READ) {
-	len = read(ctx->fd_pipe, buf, BUF_SIZE);
-	if (len <= 0)
+	len = read(ctx->fd_pipe_fromshell, buf, BUF_SIZE);
+        buf[len] = 0;
+
+	if (len <= 0) {
 	    /* failed to read, or got to the end */
 	    terminate = 1;
+        } else {
+            // pass read bytes to callback
 
-	if (len >= 0) {
-	    /* read or got to the end */
-	    buf[len] = 0;
+            if (async_value_from_ctx(&ctx->tv_dict, "receive"))
+                async_call_receive(ctx, buf, len);
 
-	    /* even if we get a len of zero, we call back one last time */
-	    if (ctx->callback(ctx, buf, len))
-		/* non-zero return from callback terminates the process */
-		terminate = 1;
-	}
+        }
+
     }
 
     ctx->events = 0;
@@ -4983,9 +5040,18 @@ handle_one_async_task (ctx)
 	    // TODO: again, needs better handling
 
 	    // TODO: convert above waitpid's to be compatible with wait4()
-	}
+        }
+
+        // for debugging purposes
+        dict_add_nr_str(ctx->tv_dict.vval.v_dict, "kill_signal_sent", 1, NULL);
+        if (WIFEXITED(status)){
+            dict_add_nr_str(ctx->tv_dict.vval.v_dict, "status", WEXITSTATUS(status), NULL);
+        }
+
+        async_call_func(&ctx->tv_dict, "terminated", 0, (typval_T *) NULL);
 
 	free_async_ctx(ctx);
+
     }
 }
 
@@ -5261,7 +5327,7 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	for (actx=async_task_list_head(); actx; actx=actx->next) {
 	    if (async_idx == -1)
 		async_idx = nfd;
-	    fds[nfd].fd = actx->fd_pipe;
+	    fds[nfd].fd = actx->fd_pipe_fromshell;
 	    fds[nfd].events = POLLIN;
 	    nfd++;
 	}
@@ -5437,10 +5503,10 @@ select_eintr:
 #endif
 #if HAVE_ASYNC_SHELL
 	for (actx=async_task_list_head(); actx; actx=actx->all_next) {
-	    FD_SET(actx->fd_pipe, &rfds);
-	    FD_SET(actx->fd_pipe, &efds);
-	    if (maxfd < actx->fd_pipe)
-		maxfd = actx->fd_pipe;
+	    FD_SET(actx->fd_pipe_fromshell, &rfds);
+	    FD_SET(actx->fd_pipe_fromshell, &efds);
+	    if (maxfd < actx->fd_pipe_fromshell)
+		maxfd = actx->fd_pipe_fromshell;
 	}
 #endif
 
@@ -5544,8 +5610,8 @@ select_eintr:
 #endif
 #if HAVE_ASYNC_SHELL
 	for (actx=async_task_list_head(); ret>0 && actx; actx=actx->all_next) {
-	    int rd = FD_ISSET(actx->fd_pipe, &rfds);
-	    int ex = FD_ISSET(actx->fd_pipe, &efds);
+	    int rd = FD_ISSET(actx->fd_pipe_fromshell, &rfds);
+	    int ex = FD_ISSET(actx->fd_pipe_fromshell, &efds);
 	    if (rd)
 		actx->events |= ACE_READ;
 	    if (ex)

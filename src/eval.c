@@ -722,10 +722,10 @@ static void f_synstack __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_synconcealed __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_system __ARGS((typval_T *argvars, typval_T *rettv));
 #ifdef FEAT_ASYNC
-static void f_asystem __ARGS((typval_T *argvars, typval_T *rettv));
-static void f_getasyncpids __ARGS((typval_T *argvars, typval_T *rettv));
-static void f_getasynccmd __ARGS((typval_T *argvars, typval_T *rettv));
-static void f_killasync __ARGS((typval_T *argvars, typval_T *rettv));
+static void f_async_exec __ARGS((typval_T *argvars, typval_T *rettv));
+static void f_async_kill __ARGS((typval_T *argvars, typval_T *rettv));
+static void f_async_list __ARGS((typval_T *argvars, typval_T *rettv));
+static void f_async_write __ARGS((typval_T *argvars, typval_T *rettv));
 #endif
 static void f_tabpagebuflist __ARGS((typval_T *argvars, typval_T *rettv));
 static void f_tabpagenr __ARGS((typval_T *argvars, typval_T *rettv));
@@ -7742,7 +7742,11 @@ static struct fst
     {"asin",		1, 1, f_asin},	/* WJMc */
 #endif
 #ifdef FEAT_ASYNC
-    {"asystem",		2, 5, f_asystem},
+    {"async_exec",	1, 1, f_async_exec},
+    {"async_kill",	1, 1, f_async_kill},
+    {"async_list",	0, 0, f_async_list},
+    {"async_write",	2, 2, f_async_write},
+    // {"async_read_until",1, 1, f_async_read_until},
 #endif
 #ifdef FEAT_FLOAT
     {"atan",		1, 1, f_atan},
@@ -7823,10 +7827,6 @@ static struct fst
     {"function",	1, 1, f_function},
     {"garbagecollect",	0, 1, f_garbagecollect},
     {"get",		2, 3, f_get},
-#ifdef FEAT_ASYNC
-    {"getasyncpidinfo", 1, 1, f_getasynccmd},
-    {"getasyncpids",    0, 0, f_getasyncpids},
-#endif
     {"getbufline",	2, 3, f_getbufline},
     {"getbufvar",	2, 2, f_getbufvar},
     {"getchar",		0, 1, f_getchar},
@@ -7884,9 +7884,6 @@ static struct fst
     {"items",		1, 1, f_items},
     {"join",		1, 2, f_join},
     {"keys",		1, 1, f_keys},
-#ifdef FEAT_ASYNC
-    {"killasync",       1, 1, f_killasync},
-#endif
     {"last_buffer_nr",	0, 0, f_last_buffer_nr},/* obsolete */
     {"len",		1, 1, f_len},
     {"libcall",		3, 3, f_libcall},
@@ -17576,334 +17573,64 @@ done:
 
 #ifdef FEAT_ASYNC
 /*
- * "asystem(func, expr [, input])" function
- */
-    static int
-asystem_callback(ctx, data, len)
-    async_ctx_T *ctx;
-    char_u      *data;
-    int		len;
-{
-    int         res;
-    typval_T	funcargv[4];
-    int		funcargc;
-    typval_T	funcrettv;
-    int		dummy = 0;
-
-#ifdef USE_CR
-    /* translate <CR> into <NL> */
-    if (data != NULL)
-    {
-	char_u	*s;
-
-	for (s = data; *s; ++s)
-	{
-	    if (*s == CAR)
-		*s = NL;
-	}
-    }
-#else
-# ifdef USE_CRNL
-    /* translate <CR><NL> into <NL> */
-    if (data != NULL)
-    {
-	char_u	*s, *d;
-
-	d = data;
-	for (s = data; *s; ++s)
-	{
-	    if (s[0] == CAR && s[1] == NL)
-		++s;
-	    *d++ = *s;
-	}
-	*d = NUL;
-    }
-# endif
-#endif
-
-    if (!(ctx->flags & ACF_LINELIST)) {
-	funcargv[0].v_type = VAR_STRING;
-	funcargv[0].vval.v_string = vim_strsave(data);
-	funcargv[1].v_type = VAR_NUMBER;
-	funcargv[1].vval.v_number = len;
-
-    } else if (len == 0) {
-	/* this happens when the task is finished,
-	 * we are to flush the pending buffer. */
-	list_T *l;
-
-	if (!ctx->linefrag)
-	    return OK;
-
-	l = list_alloc();
-	if (l == NULL)
-	    return FAIL;
-
-	if (list_append_string(l, ctx->linefrag, 0) == FAIL) {
-	    list_free(l,0);
-	    return FAIL;
-	}
-
-	vim_free(ctx->linefrag);
-	ctx->linefrag = NULL;
-
-	++l->lv_refcount;
-	funcargv[0].v_type = VAR_LIST;
-	funcargv[0].vval.v_list = l;
-	funcargv[1].v_type = VAR_NUMBER;
-	funcargv[1].vval.v_number = 1;
-
-    } else {
-	list_T *l;
-	char_u *s, *p, *e;
-	unsigned count = 0;
-
-	l = list_alloc();
-	if (l == NULL)
-	    return FAIL;
-
-	s = data;     /* start of line */
-	e = data+len; /* end of buffer */
-	while (s < e) {
-	    p = s;    /* end of line */
-	    while (s<e && *p && *p != NL)
-		p++;
-
-	    if (p==e) {
-		if (ctx->linefrag) {
-		    /* add to existing incomplete line */
-		    int olen = STRLEN(ctx->linefrag);
-		    char_u *nlf = vim_strnsave(ctx->linefrag,
-			    olen + (p-s) + 1);
-		    if (!nlf) {
-			list_free(l,0);
-			return FAIL;
-		    }
-		    vim_free(ctx->linefrag);
-		    STRNCPY(nlf + olen, s, p-s);
-		    ctx->linefrag = nlf;
-		} else {
-		    /* store incomplete line */
-		    ctx->linefrag = vim_strnsave(s, p-s);
-		    if (!ctx->linefrag) {
-			list_free(l,0);
-			return FAIL;
-		    }
-		}
-		break;
-	    }
-
-	    if (ctx->linefrag) {
-		/* we have a partial line left over from last run */
-		int olen = STRLEN(ctx->linefrag);
-		char_u *line = vim_strnsave(ctx->linefrag,
-			olen + (p-s) + 1);
-		if (!line) {
-		    list_free(l,0);
-		    return FAIL;
-		}
-		STRNCPY(line + olen, s, p-s);
-		if (list_append_string(l, line, olen + p-s) == FAIL) {
-		    list_free(l,0);
-		    return FAIL;
-		}
-		count ++;
-		vim_free(ctx->linefrag);
-		ctx->linefrag = NULL;
-		count ++;
-
-	    } else {
-		/* this is a complete line */
-		if (list_append_string(l, s, p-s) == FAIL) {
-		    list_free(l,0);
-		    return FAIL;
-		}
-		count ++;
-	    }
-
-	    s = p + 1; /* advance to after the NL */
-	}
-
-	++l->lv_refcount;
-	funcargv[0].v_type = VAR_LIST;
-	funcargv[0].vval.v_list = l;
-	funcargv[1].v_type = VAR_NUMBER;
-	funcargv[1].vval.v_number = count;
-    }
-
-    copy_tv(&ctx->tv_dict, &funcargv[2]);
-    funcargc = 3;
-
-    /* the dict cannot be replaced */
-    ctx->tv_dict.v_lock = VAR_FIXED;
-
-    vim_memset(&funcrettv, 0, sizeof(typval_T));
-
-    res = call_func(ctx->func, (int)STRLEN(ctx->func), &funcrettv,
-	    funcargc, funcargv, curwin->w_cursor.lnum,
-	    curwin->w_cursor.lnum, &dummy, TRUE, NULL);
-    if (res == OK) {
-	res = funcrettv.vval.v_number;
-	if (funcrettv.v_type != VAR_NUMBER) {
-	    EMSG(_("E999: Return from callback should be a number."));
-	    res = FAIL;
-	}
-    }
-
-    while (--funcargc >= 0)
-	clear_tv(&funcargv[funcargc]);
-
-    return res;
-}
-
-/*
- * "asystem(func, expr [, flags [, ctx [, input]]])" function
- * func  - function name or reference to call with data
- * expr  - shell code to execute
- * flags - string of flags (currently only 'l' is accepted)
- * ctx   - optional dictionary to pass as context
- * input - text to pass to shell as stdin
+ * "asystem({ctx})" function
+ * see ../runtime/doc/async.txt
+ * returns 0 on failure, pid on success
  */
     static void
-f_asystem(argvars, rettv)
+f_async_exec(argvars, rettv)
     typval_T	*argvars;
     typval_T	*rettv;
 {
     int		err = TRUE;
     int		pid = -1;
-    char_u	*func = NULL;
+    typval_T* viml_ctx;
     async_ctx_T *ctx = NULL;
+
+    viml_ctx = &argvars[0];
 
     if (check_restricted() || check_secure())
 	goto done;
+
+    if (!async_assert_ctx(viml_ctx)){
+        goto done;
+    }
 
     ctx = alloc_async_ctx();
     if (!ctx) {
 	EMSG(_("E999: Error allocating context"));
 	goto done;
     }
+    
+    if (dict_find(viml_ctx->vval.v_dict,"aslines" ,-1))
+        ctx->flags |= ACF_LINELIST;
 
-    if (argvars[0].v_type == VAR_FUNC)
-	func = argvars[0].vval.v_string;
-    else
-	func = get_tv_string(&argvars[0]);
-
-    if (func)
-	ctx->func = vim_strsave(func);
-    if (*(ctx->func) == NUL)
-	goto done;
-
-    /* decode flags */
-    if (argvars[2].v_type == VAR_UNKNOWN)
-	goto done_parsing;
-    else if (argvars[2].v_type == VAR_STRING) {
-	char_u *p;
-	p = argvars[2].vval.v_string ? argvars[2].vval.v_string : (char_u*)"";
-	ctx->flags = 0;
-	while (*p) {
-	    switch (*p) {
-	    case 'l':
-		ctx->flags |= ACF_LINELIST;
-		break;
-	    default:
-		EMSG(_(e_invarg));
-		goto done;
-	    }
-	    p++;
-	}
-    } else {
-	EMSG(_("E999: Third argument to asystem() needs to be a string."));
-	goto done;
-    }
-
-    /* decode ctx arg */
-    if (argvars[3].v_type == VAR_UNKNOWN)
-	goto done_parsing;
-    else if (argvars[3].v_type == VAR_DICT) {
-	/* refcount the dict we were given */
-	copy_tv(&argvars[3], &ctx->tv_dict);
-    } else {
-	EMSG(_("E999: Fourth argument to asystem() needs to be a dictionary."));
-	goto done;
-    }
-
-    /* decode input arg */
-    if (argvars[4].v_type == VAR_UNKNOWN)
-	goto done_parsing;
-    else {
-	char_u *p;
-	FILE *fd;
-	char_u buf[NUMBUFLEN];
-
-	/*
-	 * Write the string to a temp file, to be used for input of the shell
-	 * command.
-	 */
-	if ((ctx->infile = vim_tempname('i')) == NULL)
-	{
-	    EMSG(_(e_notmp));
-	    goto done;
-	}
-
-	fd = mch_fopen((char *)ctx->infile, WRITEBIN);
-	if (fd == NULL)
-	{
-	    EMSG2(_(e_notopen), ctx->infile);
-	    goto done;
-	}
-	p = get_tv_string_buf_chk(&argvars[4], buf);
-	if (p == NULL)
-	{
-	    fclose(fd);
-	    goto done;		/* type error; errmsg already given */
-	}
-	err = FALSE;
-	if (fwrite(p, STRLEN(p), 1, fd) != 1)
-	    err = TRUE;
-	if (fclose(fd) != 0)
-	    err = TRUE;
-	if (err)
-	{
-	    EMSG(_("E677: Error writing temp file"));
-	    goto done;
-	}
-    }
+    /* refcount the dict we were given */
+    copy_tv(viml_ctx, &ctx->tv_dict);
 
 done_parsing:
-    if (!ctx->tv_dict.vval.v_dict) {
-	/* we were not given a dict argument, create one */
-	dict_T *d = dict_alloc();
-	if (!d) {
-	    EMSG(_("E999: Error allocating dictionary"));
-	    goto done;
-	}
-	/* we own this dictionary */
-	++d->dv_refcount;
-	ctx->tv_dict.v_type = VAR_DICT;
-	ctx->tv_dict.vval.v_dict = d;
-    }
 
-    /* the ctx cannot be replaced */
-    ctx->tv_dict.v_lock = VAR_FIXED;
-
-
-    ctx->callback = asystem_callback;
-
-    ctx->cmd = vim_strsave(get_tv_string(&argvars[1]));
+    // not locking ctx->tv_dict
+    // so that users can add state to the VimL context easily
+    // There is the risk that users modify the pid and that the async_ctx_T can 
+    // no longer be found. Users should know what they are doing.
 
     pid = start_async_task(ctx);
-    if (pid != -1)
+
+    if (pid != -1) {
 	err = FALSE;
-    else
+    } else {
 	/* it's not safe to use ctx now */
+        // TODO tidy up?
 	ctx = NULL;
+    }
 					
 done:
     if (err && ctx)
 	free_async_ctx(ctx);
 
     rettv->v_type = VAR_NUMBER;
-    rettv->vval.v_number = pid;
+    rettv->vval.v_number = err ? 0 : pid;
 }
 
 /*
@@ -17911,7 +17638,7 @@ done:
  * returns list of numbers representing PIDs of async processes
  */
     static void
-f_getasyncpids (argvars, rettv)
+f_async_list (argvars, rettv)
     typval_T	*argvars;
     typval_T	*rettv;
 {
@@ -17921,64 +17648,126 @@ f_getasyncpids (argvars, rettv)
 	return;
 
     for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
-	if (list_append_number(rettv->vval.v_list, ctx->pid) == FAIL)
+	if (list_append_tv(rettv->vval.v_list, &ctx->tv_dict) == FAIL)
 	    break;
     }
 }
 
+
+
 /*
- * "getasynccmd({pid})" function
- * returns command that is running in the async pid
+ * "async_kill({ctx})" function
  */
     static void
-f_getasynccmd (argvars, rettv)
+f_async_kill (argvars, rettv)
     typval_T	*argvars;
     typval_T	*rettv;
 {
     async_ctx_T *ctx;
-    int		pid;
 
-    if (argvars[0].v_type != VAR_NUMBER) {
-	EMSG(_(e_invarg));
-	return;
+    ctx = async_ctx_by_vim_ctx(&argvars[0]);
+    if (!ctx){
+        // TODO: return 1 indicating failure?
+        return;
     }
-    pid = (int)get_tv_number(&argvars[0]);
 
-    for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
-	if (ctx->pid != pid)
-	    continue;
-
-	rettv->v_type = VAR_STRING;
-	rettv->vval.v_string = vim_strsave(ctx->cmd);
-	break;
-    }
+    kill_async_task(ctx);
 }
 
 /*
- * "killasync({pid})" function
- * terminates a running task
+ * "async_write({ctx}, {string})" function
  */
     static void
-f_killasync (argvars, rettv)
+f_async_write (argvars, rettv)
     typval_T	*argvars;
     typval_T	*rettv;
 {
     async_ctx_T *ctx;
-    int		pid;
+    char_u	buf[NUMBUFLEN];
 
-    if (argvars[0].v_type != VAR_NUMBER) {
-	EMSG(_(e_invarg));
-	return;
+    ctx = async_ctx_by_vim_ctx(&argvars[0]);
+    if (!ctx){
+        // TODO: return 1 indicating failure?
+        return;
     }
-    pid = (int)get_tv_number(&argvars[0]);
 
-    for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
-	if (ctx->pid != pid)
-	    continue;
+    u_char * input = get_tv_string_buf_chk(&argvars[1], buf);
 
-	kill_async_task(ctx);
-	break;
+    if (!input){
+        EMSG(_("E999: async: getting input failed"));
+        return;
     }
+
+    size_t len = STRLEN(input);
+    size_t written = write(ctx->fd_pipe_toshell, input, len);
+    if (written != len)
+        EMSG(_("E999: async: failed writign all bytes"));
+}
+
+// call a callback
+void async_call_func(viml_ctx, name, argcount, argvars)
+    typval_T * viml_ctx;
+    u_char * name;
+    int argcount;
+    typval_T	*argvars;	/* arguments */
+{
+
+    typval_T * f = async_value_from_ctx(viml_ctx, name);
+
+    if (f){
+        if (f->v_type == VAR_FUNC){
+            typval_T	rettv;
+            rettv.v_type = VAR_UNKNOWN;
+            int dummy;
+            u_char *func = f->vval.v_string;
+            call_func(func, STRLEN(func), &rettv, argcount, argvars, 0, 0, &dummy, TRUE, viml_ctx->vval.v_dict);
+            clear_tv(&rettv);
+        } else {
+            EMSG(_("E999: async_kill: callable function expected"));
+        }
+    }
+}
+
+
+/*
+ * Start a new async task
+ * Returns 0 on failure, 1 on success
+ * On success the "pid" key will be set
+ * On failure, the ctx object cannot be used by the caller.
+ */
+    int
+start_async_task(async_ctx)
+    async_ctx_T *async_ctx;
+{
+    int pid = -1;
+
+#if HAVE_ASYNC_SHELL
+
+    typval_T *viml_ctx = &async_ctx->tv_dict;
+
+    typval_T *cmd = async_value_from_ctx(viml_ctx, "cmd");
+
+    // prepare cmd
+    if (!cmd){
+        EMSG(_("E999: async_exec: missing key cmd"));
+        return -1;
+    }
+    char_u *p = get_tv_string_chk(cmd);
+    if (!p) p = "";
+    async_ctx->cmd = vim_strsave(p);
+
+    pid =  mch_start_async_shell(async_ctx);
+
+    if (pid < 0) return 0;
+    dict_add_nr_str(viml_ctx->vval.v_dict, "pid", pid, NULL);
+    async_call_func(viml_ctx, "started", 0, NULL);
+
+
+#else /* don't HAVE_ASYNC_SHELL, fake it */
+    always use HAVE_ASYNC_SHELL
+    If you dont have FEAT_ASYNC you can fake it easily in VimL using the
+    system command. No need to dupicate everything here
+#endif
 }
 
 #endif

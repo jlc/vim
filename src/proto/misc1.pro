@@ -99,9 +99,11 @@ int goto_im __ARGS((void));
 #ifdef FEAT_ASYNC
 async_ctx_T *alloc_async_ctx __ARGS((void));
 void free_async_ctx __ARGS((async_ctx_T *ctx));
-int start_async_task __ARGS((async_ctx_T *ctx));
 void kill_async_task __ARGS((async_ctx_T *ctx));
 int handle_async_events __ARGS((void));
+int async_assert_ctx __ARGS((typval_T *arg));
+typval_T* async_value_from_ctx __ARGS((typval_T *ctx, char_u * key));
+async_ctx_T* async_ctx_by_vim_ctx __ARGS((typval_T *arg));
 #endif
 #if HAVE_ASYNC_SHELL
 void async_task_list_add __ARGS((async_ctx_T *ctx));
