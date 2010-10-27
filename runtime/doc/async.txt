@@ -83,21 +83,46 @@ When a process dies it will be removed from the list.
 So keep your own references if you have to.
 
 VIML CODE EXAMPLE: >
-
-  let ctx = { 'cmd' : 'echo "foo"' }
-  fun ctx.receive(type, text)
-    echo "got some lines from ".a:type."  process: ". self.pid
-    call append(line('$'), split(text,"\n"))
+  fun! s:Add(s)
+    let l = [{'text': string(a:s)}]
+    call setqflist(l, 'a')
   endf
+
+  " ctx 1
+  let ctx = { 'cmd' : 'nr=1; while read f; do nr=`expr $nr + 1`; sleep 1; echo $nr $f - pong; if [ $nr == 5 ]; then break; fi; done; exit 12' }
+  fun ctx.receive(type, text)
+    call s:Add(string(a:text))
+    call async_write(self, "ping\n")
+  endf
+
+  fun ctx.started()
+    call s:Add("ctx1: process started. pid:  ". self.pid)
+  endf
+
   fun ctx.terminated()
-    echo "process died. status:  ". self.status
+    call s:Add("ctx1: process died. status (should be 12): ". self.status)
   endf
 
   call async_exec(ctx)
-  call async_write(ctx, "some input")
-  call async_kill(ctx)
+  call async_write(ctx, "ping\n")
 
-<
+
+  " ctx2 2
+  let ctx2 = { 'cmd' : 'find / | while read f; do echo $f; sleep 1; done' }
+
+  fun ctx2.receive(type, text)
+    call s:Add('ctx22: '.string(a:text))
+  endf
+
+  fun ctx2.started()
+    call s:Add("ctx22: process started. pid:  ". self.pid)
+  endf
+
+  fun ctx2.terminated()
+    call s:Add("ctx22: process died. status:  ". self.status)
+  endf
+  call async_exec(ctx2)
+
 
 random notes:
 - writing to a process is a blocking operation. Ussually only little data is
