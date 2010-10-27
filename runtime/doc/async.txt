@@ -1,0 +1,107 @@
+async.txt*     For Vim version 7.3.  Last change: 2010
+
+
+Async communication                                  *async-communication*
+
+1. Introduction				|async-communication-intro|
+
+{Vi has None of this}
+{only available when compiled with the |+async| feature}
+
+==============================================================================
+1. Introduction						*print-intro*
+
+TODO:
+  - fix gui and non gui version (by introducing mzscheme like timers)
+  - enhance this help
+
+
+Yes - Vim is only an editor. Yet this feature has been missing for too long
+IMHO.
+
+This short help text tries to document the --enable-async feature letting Vim
+talk to processes in a non blocking interactive way. Thus you can run
+interpreters, caching compilers (fcsh), or web servers within vim easily
+appending their output to buffers.
+
+
+:echo has('async') should be 1
+
+this feature provides the following vim functions:
+
+async_exec({ctx})   -- starts an asynchronous process
+
+
+  context keys which will be used:
+  ================================
+    - cmd: the command to be executed. 
+
+    /* idea (which I removed) because split() runs reasonable fast:
+      - aslines (optional): if set a list of lines will be passed to the
+                  functions receiving stdout/ err
+                  You should not change this setting
+    */
+
+    - receive({type}, content) (optional):
+        function receiving stdout/err. If aslines evaluates to true content will
+        be a list of lines. type is always "stdout". (Providing a way for
+        receiving stderr/out separately could be provided - but because Vim is
+        polling the descriptors only once in a while it may be better to let
+        the OS merge both streams)
+
+    - started()    (optional) : called when process was started successfully
+                                Now self.pid should contain the process id
+
+    - terminated() (optional) : called when the process terminated (or when it was killed)
+                                Now self.status should contain the exit status
+
+  context keys which will be assigned:
+  ====================================
+    - pid    : the process pid
+    - status : the process exit status.
+
+  Note: You must not change pid yourself
+
+async_kill({ctx})                -- kills an asynchronous process
+async_list()                     -- returns list of processes
+async_write({ctx}, {string})     -- pass string to stdin of context
+
+TODO:
+async_read_until({ctx}, {string} -- read bytes from stdout until one of the chars contained in string is found
+                                 -- this way you can read lines etc easily.
+                                    Don't know yet how useful it is. This way
+                                    you can implement "blocking" read features
+                                    if you have to.
+                                    Example use case would be completion.
+                                    Another way would be returning no
+                                    completions restarting completion task if
+                                    cursor didn't move and the completion
+                                    results are received by the specified
+                                    receive function
+
+When a process dies it will be removed from the list.
+So keep your own references if you have to.
+
+VIML CODE EXAMPLE: >
+
+  let ctx = { 'cmd' : 'echo "foo"' }
+  fun ctx.receive(type, text)
+    echo "got some lines from ".a:type."  process: ". self.pid
+    call append(line('$'), split(text,"\n"))
+  endf
+  fun ctx.terminated()
+    echo "process died. status:  ". self.status
+  endf
+
+  call async_exec(ctx)
+  call async_write(ctx, "some input")
+  call async_kill(ctx)
+
+<
+
+random notes:
+- writing to a process is a blocking operation. Ussually only little data is
+  written which should fit into the os pipe buffer.
+
+  Of course a non blocking version could be implemented (eg vim buffering all
+  the data you want to write). I don't see any value doing so.
