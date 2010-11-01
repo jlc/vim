@@ -18,7 +18,6 @@ static char_u *vim_version_dir __ARGS((char_u *vimdir));
 static char_u *remove_tail __ARGS((char_u *p, char_u *pend, char_u *name));
 static int copy_indent __ARGS((int size, char_u	*src));
 
-
 /*
  * Count the size (in window cells) of the indent in the current line.
  */
@@ -10385,8 +10384,6 @@ alloc_async_ctx()
 free_async_ctx(ctx)
     async_ctx_T *ctx;
 {
-
-    u_char * argptr;
     if (ctx) {
 	async_task_list_remove(ctx);
 	async_active_task_list_remove(ctx);
@@ -10469,25 +10466,32 @@ handle_async_events()
     return count;
 }
 
-
-// returns 0 if arg does not look like being an async context
-int async_assert_ctx(typval_T *arg){
-
-    // it could be checked wether the pid or the dict can be found in the list
-
-    if (arg->v_type != VAR_DICT){
-        EMSG(_("E999: async_kill: no context passed"));
-        return 0;
+/* validate input, testing for a valid async context
+ * returns true if context if valid, otherwise
+ * outputs error message and returns false */
+    int
+async_assert_ctx(arg)
+    typval_T *arg;
+{
+    if (arg->v_type != VAR_DICT
+	    || arg->vval.v_dict == NULL) {
+	EMSG(_("E999: not a valid async context object"));
+	return 0;
     }
+
+    /* TODO: should check for 'cmd', and perhaps other required keys */
+
     return 1;
 }
 
 /* returns a value from an async context
  * NULL if key does not exist.
  * */
-typval_T* async_value_from_ctx(typval_T *ctx, char_u * key){
-
-    dict_T	*d;
+    typval_T*
+async_value_from_ctx(ctx, key)
+    typval_T	*ctx;
+    char_u	*key;
+{
     dictitem_T	*di;
 
     if (!(async_assert_ctx(ctx)))
@@ -10506,26 +10510,27 @@ typval_T* async_value_from_ctx(typval_T *ctx, char_u * key){
 
 }
 
-
-/* arg: any vimL expression
+/* arg: vimL representation of the async context
  * if it is a dict and has a pid assigned the corresponding c dict is returned
  * returns: NULL or pointer to async_ctx_T
  */
-async_ctx_T* async_ctx_by_vim_ctx(typval_T *arg){
-
+    async_ctx_T*
+find_async_ctx_for_vim_ctx(arg)
+    typval_T *arg;
+{
     async_ctx_T *ctx = NULL;
 
     if (!(async_assert_ctx(arg)))
         return NULL;
 
-    // get pid
+    /* get pid */
     typval_T *pid = async_value_from_ctx(arg, "pid");
     if (!pid){
         EMSG(_("E999: async: no pid key found in ctx!"));
         return NULL;
     }
 
-    // get pid as int from pid
+    /* get pid as int from pid */
     int error = FALSE;
     int i_pid = get_tv_number_chk(pid, &error);
     if (error == TRUE){
@@ -10534,17 +10539,14 @@ async_ctx_T* async_ctx_by_vim_ctx(typval_T *arg){
     }
 
     for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
-	if (ctx->pid == i_pid){
+	if (ctx->pid == i_pid)
 	    return ctx;
-        }
     }
 
-    // use format and add pid?
+    /* use format and add pid? */
     EMSG(_("E999: async: process for pid not found. Has it died?"));
     return NULL;
 }
-
-
 
 #endif
 
