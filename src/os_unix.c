@@ -5006,19 +5006,16 @@ handle_one_async_task (ctx)
 
     if (ctx->events & ACE_READ) {
 	len = read(ctx->fd_pipe_fromshell, buf, BUF_SIZE);
-        buf[len] = 0;
-
 	if (len <= 0) {
 	    /* failed to read, or got to the end */
 	    terminate = 1;
-        } else {
-            // pass read bytes to callback
 
-            if (async_value_from_ctx(&ctx->tv_dict, "receive"))
-                async_call_receive(ctx, buf, len);
-
-        }
-
+	} else {
+	    // pass read bytes to callback
+	    buf[len] = 0;
+	    if (async_value_from_ctx(&ctx->tv_dict, "receive"))
+		async_call_receive(ctx, buf, len);
+	}
     }
 
     ctx->events = 0;
