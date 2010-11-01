@@ -10544,19 +10544,13 @@ async_value_from_ctx(ctx, key)
     dictitem_T	*di;
 
     if (!(async_assert_ctx(ctx)))
-        return NULL;
-    
-    d = ctx->vval.v_dict;
+	return NULL;
 
-    if (d == NULL){ // don't think this will happen, but f_get tests for this case
-        EMSG(_("E999: async_kill: no dict?"));
-    }
-
-    di = dict_find(d, key, -1);
+    di = dict_find(ctx->vval.v_dict, key, -1);
     if (di == NULL)
-        return NULL;
-    return &di->di_tv;
+	return NULL;
 
+    return &di->di_tv;
 }
 
 /* arg: vimL representation of the async context
@@ -10567,24 +10561,27 @@ async_value_from_ctx(ctx, key)
 find_async_ctx_for_vim_ctx(arg)
     typval_T *arg;
 {
+    int error;
+    int i_pid;
     async_ctx_T *ctx = NULL;
+    typval_T *pid;
 
     if (!(async_assert_ctx(arg)))
-        return NULL;
+	return NULL;
 
     /* get pid */
-    typval_T *pid = async_value_from_ctx(arg, "pid");
+    pid = async_value_from_ctx(arg, (char_u*)"pid");
     if (!pid){
-        EMSG(_("E999: async: no pid key found in ctx!"));
-        return NULL;
+	EMSG(_("E999: async: no pid key found in ctx!"));
+	return NULL;
     }
 
     /* get pid as int from pid */
-    int error = FALSE;
-    int i_pid = get_tv_number_chk(pid, &error);
+    error = FALSE;
+    i_pid = get_tv_number_chk(pid, &error);
     if (error == TRUE){
-        EMSG(_("E999: async: no valid pid found in dict!"));
-        return NULL;
+	EMSG(_("E999: async: no valid pid found in dict!"));
+	return NULL;
     }
 
     for (ctx = async_task_list_head(); ctx; ctx = ctx->all_next) {
