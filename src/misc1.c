@@ -10413,6 +10413,55 @@ free_async_ctx(ctx)
 }
 
 /*
+ * Start a new async task
+ * Returns -1 on failure, pid number on success
+ * On success the "pid" key will be set
+ * On failure, the ctx object cannot be used by the caller.
+ */
+    int
+start_async_task(ctx)
+    async_ctx_T *ctx;
+{
+    int pid = -1;
+
+#if HAVE_ASYNC_SHELL
+    typval_T *viml_ctx;
+    typval_T *cmd;
+    char_u *cmdstr = NULL;
+
+    viml_ctx = &ctx->tv_dict;
+
+    /* get cmd from Dictionary */
+    cmd = async_value_from_ctx(viml_ctx, (char_u*)"cmd");
+    if (!cmd) {
+        EMSG(_("E999: async: missing key cmd"));
+        return 0;
+    }
+
+    /* get the string value */
+    cmdstr = get_tv_string_chk(cmd);
+    if (!cmdstr) {
+        EMSG(_("E999: async: missing command at key cmd"));
+        return 0;
+    }
+    ctx->cmd = vim_strsave(cmdstr);
+
+    /* start a new async shell */
+    pid = mch_start_async_shell(ctx);
+
+    /* on success, assign pid to Dictionary */
+    if (pid != -1) {
+	dict_add_nr_str(viml_ctx->vval.v_dict, "pid", pid, NULL);
+	call_async_callback(ctx, (char_u*)"started", 0, NULL);
+    }
+#endif
+
+    /* return pid */
+    return pid;
+}
+
+
+/*
  * Terminate an async task.
  * On success, the ctx object cannot be used by the caller.
  */

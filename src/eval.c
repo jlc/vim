@@ -17581,7 +17581,6 @@ f_async_exec(argvars, rettv)
     typval_T	*argvars;
     typval_T	*rettv;
 {
-    int		err = TRUE;
     int		pid = -1;
     typval_T* viml_ctx;
     async_ctx_T *ctx = NULL;
@@ -17599,13 +17598,12 @@ f_async_exec(argvars, rettv)
 	EMSG(_("E999: Error allocating context"));
 	goto done;
     }
-    
-    if (dict_find(viml_ctx->vval.v_dict,"aslines" ,-1))
-        ctx->flags |= ACF_LINELIST;
 
-    /* refcount the dict we were given */
+    if (dict_find(viml_ctx->vval.v_dict, (char_u*)"aslines" , -1))
+	ctx->flags |= ACF_LINELIST;
+
+    /* copy and refcount the vimL dict we were given */
     copy_tv(viml_ctx, &ctx->tv_dict);
-
 
     // not locking ctx->tv_dict
     // so that users can add state to the VimL context easily
@@ -17614,20 +17612,13 @@ f_async_exec(argvars, rettv)
 
     pid = start_async_task(ctx);
 
-    if (pid != -1) {
-	err = FALSE;
-    } else {
-	/* it's not safe to use ctx now */
-        // TODO tidy up?
-	ctx = NULL;
-    }
-					
 done:
-    if (err && ctx)
+    /* on failure, free the new context */
+    if (pid == -1)
 	free_async_ctx(ctx);
 
     rettv->v_type = VAR_NUMBER;
-    rettv->vval.v_number = err ? 0 : pid;
+    rettv->vval.v_number = pid;
 }
 
 /*
@@ -17679,6 +17670,9 @@ f_async_write (argvars, rettv)
 {
     async_ctx_T *ctx;
     char_u	buf[NUMBUFLEN];
+    u_char	*input;
+    size_t	len;
+    size_t	written;
 
     ctx = find_async_ctx_for_vim_ctx(&argvars[0]);
     if (!ctx){
@@ -17686,85 +17680,50 @@ f_async_write (argvars, rettv)
         return;
     }
 
-    u_char * input = get_tv_string_buf_chk(&argvars[1], buf);
+    input = get_tv_string_buf_chk(&argvars[1], buf);
 
-    if (!input){
-        EMSG(_("E999: async: getting input failed"));
-        return;
+    if (!input) {
+	EMSG(_("E999: async: getting input failed"));
+	return;
     }
 
-    size_t len = STRLEN(input);
-    size_t written = write(ctx->fd_pipe_toshell, input, len);
+    len = STRLEN(input);
+    // TODO: this has to be wrapped in a mch function since we cannot assume
+    //       that all platforms will have simple posix semantics here
+    written = write(ctx->fd_pipe_toshell, input, len);
     if (written != len)
-        EMSG(_("E999: async: failed writign all bytes"));
+	EMSG(_("E999: async: failed writing all bytes"));
 }
-
-// call a callback
-void call_async_callback(viml_ctx, name, argcount, argvars)
-    typval_T * viml_ctx;
-    u_char * name;
-    int argcount;
-    typval_T	*argvars;	/* arguments */
-{
-
-    typval_T * f = async_value_from_ctx(viml_ctx, name);
-
-    if (f){
-        if (f->v_type == VAR_FUNC){
-            typval_T	rettv;
-            rettv.v_type = VAR_UNKNOWN;
-            int dummy;
-            u_char *func = f->vval.v_string;
-            call_func(func, STRLEN(func), &rettv, argcount, argvars, 0, 0, &dummy, TRUE, viml_ctx->vval.v_dict);
-            clear_tv(&rettv);
-        } else {
-            EMSG(_("E999: async_kill: callable function expected"));
-        }
-    }
-}
-
 
 /*
- * Start a new async task
- * Returns 0 on failure, 1 on success
- * On success the "pid" key will be set
- * On failure, the ctx object cannot be used by the caller.
+ * call an async function
  */
-    int
-start_async_task(async_ctx)
-    async_ctx_T *async_ctx;
+    void
+call_async_callback(ctx, name, argcount, argvars)
+    async_ctx_T	*ctx;
+    u_char	*name;
+    int		argcount;
+    typval_T	*argvars;	/* arguments */
 {
-    int pid = -1;
+    typval_T	*viml_ctx;
+    typval_T	*f = NULL;
+    typval_T	rettv;
+    u_char	*func;
+    int		dummy;
 
-#if HAVE_ASYNC_SHELL
+    viml_ctx = &ctx->tv_dict;
 
-    typval_T *viml_ctx = &async_ctx->tv_dict;
-
-    typval_T *cmd = async_value_from_ctx(viml_ctx, "cmd");
-
-    // prepare cmd
-    if (!cmd){
-        EMSG(_("E999: async_exec: missing key cmd"));
-        return -1;
+    f = async_value_from_ctx(viml_ctx, name);
+    if (!f || f->v_type != VAR_FUNC) {
+	EMSG(_("E999: async: callable function expected"));
+	return;
     }
-    char_u *p = get_tv_string_chk(cmd);
-    if (!p) p = "";
-    async_ctx->cmd = vim_strsave(p);
 
-    pid =  mch_start_async_shell(async_ctx);
-
-    if (pid < 0) return 0;
-    dict_add_nr_str(viml_ctx->vval.v_dict, "pid", pid, NULL);
-    call_async_callback(viml_ctx, "started", 0, NULL);
-
-
-#else /* don't HAVE_ASYNC_SHELL, fake it */
-    always use HAVE_ASYNC_SHELL
-    If you dont have FEAT_ASYNC you can fake it easily in VimL using the
-    system command. No need to dupicate everything here
-#endif
+    rettv.v_type = VAR_UNKNOWN;
+    func = f->vval.v_string;
+    call_func(func, STRLEN(func), &rettv, argcount, argvars, 0, 0, &dummy, TRUE, viml_ctx->vval.v_dict);
+    clear_tv(&rettv);
 }
-
 #endif
 
 /*

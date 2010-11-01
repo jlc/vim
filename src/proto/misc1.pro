@@ -99,7 +99,9 @@ int goto_im __ARGS((void));
 #ifdef FEAT_ASYNC
 async_ctx_T *alloc_async_ctx __ARGS((void));
 void free_async_ctx __ARGS((async_ctx_T *ctx));
+int start_async_task __ARGS((async_ctx_T *ctx));
 void kill_async_task __ARGS((async_ctx_T *ctx));
+void call_async_callback __ARGS((async_ctx_T *ctx, u_char *name, int argcount, typval_T *argvars));
 int handle_async_events __ARGS((void));
 int async_assert_ctx __ARGS((typval_T *arg));
 typval_T* async_value_from_ctx __ARGS((typval_T *ctx, char_u * key));
