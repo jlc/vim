@@ -17660,7 +17660,7 @@ f_async_kill (argvars, rettv)
 {
     async_ctx_T *ctx;
 
-    ctx = async_ctx_by_vim_ctx(&argvars[0]);
+    ctx = find_async_ctx_for_vim_ctx(&argvars[0]);
     if (!ctx){
         // TODO: return 1 indicating failure?
         return;
@@ -17680,7 +17680,7 @@ f_async_write (argvars, rettv)
     async_ctx_T *ctx;
     char_u	buf[NUMBUFLEN];
 
-    ctx = async_ctx_by_vim_ctx(&argvars[0]);
+    ctx = find_async_ctx_for_vim_ctx(&argvars[0]);
     if (!ctx){
         // TODO: return 1 indicating failure?
         return;
