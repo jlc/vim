@@ -4852,20 +4852,17 @@ mch_start_async_shell(ctx)
 	goto error_build_argv;
     }
 
-    fd_toshell[0] = -1; // if creating fd_fromshell fails fd_toshell should be NULL when tidying up
-    fd_toshell[1] = -1;
-
     // create communication pipes:
     pipe_error = (pipe(fd_fromshell) < 0);
     if (pipe_error) {
 	MSG_PUTS(_("\nCannot create pipe\n"));
-	goto error_pipe;
+	goto error_from_pipe;
     }
 
     pipe_error = (pipe(fd_toshell) < 0);
     if (pipe_error) {
 	MSG_PUTS(_("\nCannot create pipe\n"));
-	goto error_pipe;
+	goto error_to_pipe;
     }
 
     pid = fork();
@@ -4923,9 +4920,10 @@ mch_start_async_shell(ctx)
 error_fork:
 	close(fd_fromshell[0]);
 	close(fd_fromshell[1]);
+error_to_pipe:
 	close(fd_toshell[0]);
 	close(fd_toshell[1]);
-error_pipe:
+error_from_pipe:
     vim_free(argv);
 error_build_argv:
     vim_free(newcmd);
