@@ -5034,11 +5034,11 @@ handle_one_async_task (ctx)
 	    // TODO: convert above waitpid's to be compatible with wait4()
 	}
 
-        // for debugging purposes
-        dict_add_nr_str(ctx->tv_dict.vval.v_dict, "kill_signal_sent", 1, NULL);
-        if (WIFEXITED(status)){
-            dict_add_nr_str(ctx->tv_dict.vval.v_dict, "status", WEXITSTATUS(status), NULL);
-        }
+	// for debugging purposes
+	dict_add_nr_str(ctx->tv_dict.vval.v_dict, "kill_signal_sent", 1, NULL);
+	if (WIFEXITED(status)){
+	    dict_add_nr_str(ctx->tv_dict.vval.v_dict, "status", WEXITSTATUS(status), NULL);
+	}
 
 	call_async_callback(ctx, (char_u*)"terminated", 0, (typval_T *) NULL);
 

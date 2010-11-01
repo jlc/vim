@@ -17653,8 +17653,8 @@ f_async_kill (argvars, rettv)
 
     ctx = find_async_ctx_for_vim_ctx(&argvars[0]);
     if (!ctx){
-        // TODO: return 1 indicating failure?
-        return;
+	// TODO: return 1 indicating failure?
+	return;
     }
 
     kill_async_task(ctx);
@@ -17675,9 +17675,9 @@ f_async_write (argvars, rettv)
     size_t	written;
 
     ctx = find_async_ctx_for_vim_ctx(&argvars[0]);
-    if (!ctx){
-        // TODO: return 1 indicating failure?
-        return;
+    if (!ctx) {
+	// TODO: return 1 indicating failure?
+	return;
     }
 
     input = get_tv_string_buf_chk(&argvars[1], buf);
