@@ -4983,13 +4983,13 @@ async_call_receive(ctx, data, len)
 
     // it looks like copy_tv copying the string. So I hope this is safe to do ..
     funcargv[0].v_type = VAR_STRING;
-    funcargv[0].vval.v_string = "stdout";
+    funcargv[0].vval.v_string = (char_u*)"stdout";
     funcargv[1].v_type = VAR_STRING;
     funcargv[1].vval.v_string = data;
 
     vim_memset(&funcrettv, 0, sizeof(typval_T));
 
-    call_async_callback(ctx, "receive", 2, &funcargv[0]);
+    call_async_callback(ctx, (char_u*)"receive", 2, &funcargv[0]);
 }
 
     static void
@@ -5013,7 +5013,7 @@ handle_one_async_task (ctx)
 	} else {
 	    // pass read bytes to callback
 	    buf[len] = 0;
-	    if (async_value_from_ctx(&ctx->tv_dict, "receive"))
+	    if (async_value_from_ctx(&ctx->tv_dict, (char_u*)"receive"))
 		async_call_receive(ctx, buf, len);
 	}
     }
@@ -5040,7 +5040,7 @@ handle_one_async_task (ctx)
             dict_add_nr_str(ctx->tv_dict.vval.v_dict, "status", WEXITSTATUS(status), NULL);
         }
 
-        call_async_callback(ctx, "terminated", 0, (typval_T *) NULL);
+	call_async_callback(ctx, (char_u*)"terminated", 0, (typval_T *) NULL);
 
 	free_async_ctx(ctx);
     }
