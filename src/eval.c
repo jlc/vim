@@ -7745,7 +7745,7 @@ static struct fst
     {"async_exec",	1, 1, f_async_exec},
     {"async_kill",	1, 1, f_async_kill},
     {"async_list",	0, 0, f_async_list},
-    {"async_write",	2, 2, f_async_write},
+    {"async_write",	2, 3, f_async_write},
 #endif
 #ifdef FEAT_FLOAT
     {"atan",		1, 1, f_atan},
@@ -17661,7 +17661,7 @@ f_async_kill (argvars, rettv)
 }
 
 /*
- * "async_write({ctx}, {string})" function
+ * "async_write({ctx}, {data}, {fd})" function
  */
     static void
 f_async_write (argvars, rettv)
@@ -17672,19 +17672,30 @@ f_async_write (argvars, rettv)
     char_u	buf[NUMBUFLEN];
     u_char	*input;
     size_t	len;
-    size_t	written;
+    size_t	written = (size_t)-1;
+    int		fd = 0;
 
     ctx = find_async_ctx_for_vim_ctx(&argvars[0]);
     if (!ctx) {
-	// TODO: return 1 indicating failure?
-	return;
+	goto done;
     }
 
     input = get_tv_string_buf_chk(&argvars[1], buf);
-
     if (!input) {
 	EMSG(_("E999: async: getting input failed"));
-	return;
+	goto done;
+    }
+
+    if (argvars[2].v_type != VAR_UNKNOWN) {
+	int error;
+	fd = get_tv_number_chk(&argvars[2], &error);
+	if (error)
+	    goto done;
+	/* FIXME: should support other fd's at some point */
+	if (fd != 0) {
+	    EMSG(_("E999: async_write only support fd==0 "));
+	    goto done;
+	}
     }
 
     len = STRLEN(input);
@@ -17693,6 +17704,10 @@ f_async_write (argvars, rettv)
     written = write(ctx->fd_pipe_toshell, input, len);
     if (written != len)
 	EMSG(_("E999: async: failed writing all bytes"));
+
+done:
+    rettv->v_type = VAR_NUMBER;
+    rettv->vval.v_number = written;
 }
 
 /*
