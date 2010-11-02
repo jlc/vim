@@ -42,12 +42,28 @@ async_exec({ctx})   -- starts an asynchronous process
                   You should not change this setting
     */
 
-    - receive({type}, content) (optional):
-        function receiving stdout/err. If aslines evaluates to true content will
-        be a list of lines. type is always "stdout". (Providing a way for
-        receiving stderr/out separately could be provided - but because Vim is
-        polling the descriptors only once in a while it may be better to let
-        the OS merge both streams)
+    - receive({data}, {fd}) (optional):
+                                function called to pass data obtained
+                                from the async process to the vim.  The
+                                caller to async_exec can set this
+                                method to receive data via async
+                                allbacks.  If this function is not
+                                defined the caller will have to poll
+                                async_read in order to get data from the
+                                process.
+
+                                If 'aslines' attribute is set, thien the
+                                {data} argument will be a list of lines,
+                                otherwise it will contain a string with
+                                all the data.
+
+                                The {fd} argument identifies the source
+                                of the data:
+                                   1 - standard output
+                                   2 - standard error
+
+                                NOTE: current implementation merges
+                                stderr into stdout.
 
     - started()    (optional) : called when process was started successfully
                                 Now self.pid should contain the process id
@@ -90,7 +106,7 @@ VIML CODE EXAMPLE: >
 
   " ctx 1
   let ctx = { 'cmd' : 'nr=1; while read f; do nr=`expr $nr + 1`; sleep 1; echo $nr $f - pong; if [ $nr == 5 ]; then break; fi; done; exit 12' }
-  fun ctx.receive(type, text)
+  fun ctx.receive(text, type)
     call s:Add(string(a:text))
     call async_write(self, "ping\n")
   endf
@@ -110,7 +126,7 @@ VIML CODE EXAMPLE: >
   " ctx2 2
   let ctx2 = { 'cmd' : 'find / | while read f; do echo $f; sleep 1; done' }
 
-  fun ctx2.receive(type, text)
+  fun ctx2.receive(text, type)
     call s:Add('ctx22: '.string(a:text))
   endf
 
@@ -130,3 +146,12 @@ random notes:
 
   Of course a non blocking version could be implemented (eg vim buffering all
   the data you want to write). I don't see any value doing so.
+
+TODO:
+- have async_exec() fill in kill/read/write handlers so it's possible to:
+     ctx = { ... }
+     call async_exec(ctx)
+     call ctx.write('something')
+     let txt = ctx.read()
+     call ctx.kill()
+

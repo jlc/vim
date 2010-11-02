@@ -4946,7 +4946,6 @@ async_call_receive(ctx, data, len)
     int		len;
 {
     typval_T	funcargv[2];
-    typval_T	funcrettv;
 
 #ifdef USE_CR
     /* translate <CR> into <NL> */
@@ -4981,13 +4980,10 @@ async_call_receive(ctx, data, len)
 
     /* prepare argument. If flag ACF_LINELIST (aslines) is set pass a list */
 
-    // it looks like copy_tv copying the string. So I hope this is safe to do ..
     funcargv[0].v_type = VAR_STRING;
-    funcargv[0].vval.v_string = (char_u*)"stdout";
-    funcargv[1].v_type = VAR_STRING;
-    funcargv[1].vval.v_string = data;
-
-    vim_memset(&funcrettv, 0, sizeof(typval_T));
+    funcargv[0].vval.v_string = data;
+    funcargv[1].v_type = VAR_NUMBER;
+    funcargv[1].vval.v_number = 1; // TODO: split stdin and stdout
 
     call_async_callback(ctx, (char_u*)"receive", 2, &funcargv[0]);
 }
