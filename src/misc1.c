@@ -10520,6 +10520,75 @@ handle_async_events()
     return count;
 }
 
+    void
+async_call_receive(ctx, data, len)
+    async_ctx_T *ctx;
+    char_u      *data;
+    int		len;
+{
+    typval_T	funcargv[2];
+
+#ifdef USE_CR
+    /* translate <CR> into <NL> */
+    if (data != NULL)
+    {
+	char_u	*s;
+
+	for (s = data; *s; ++s)
+	{
+	    if (*s == CAR)
+		*s = NL;
+	}
+    }
+#else
+# ifdef USE_CRNL
+    /* translate <CR><NL> into <NL> */
+    if (data != NULL)
+    {
+	char_u	*s, *d;
+
+	d = data;
+	for (s = data; *s; ++s)
+	{
+	    if (s[0] == CAR && s[1] == NL)
+		++s;
+	    *d++ = *s;
+	}
+	*d = NUL;
+    }
+# endif
+#endif
+
+    /* first arg is the data */
+    if (ctx->flags & ACF_LINELIST) {
+	/* we will return a list of lines */
+	list_T *l;
+
+	l = prepare_async_data_list(ctx, data, len);
+	if (l == NULL)
+	    return;
+
+	++l->lv_refcount;
+	funcargv[0].v_type = VAR_LIST;
+	funcargv[0].vval.v_list = l;
+
+    } else {
+	/* we return everything in one vimL string */
+	funcargv[0].v_type = VAR_STRING;
+	funcargv[0].vval.v_string = data;
+    }
+
+    /* second arg is the file descriptor */
+    funcargv[1].v_type = VAR_NUMBER;
+    funcargv[1].vval.v_number = 1; // TODO: split stdin and stdout
+
+    call_async_callback(ctx, (char_u*)"receive", 2, &funcargv[0]);
+
+    if (funcargv[0].v_type == VAR_LIST) {
+	clear_tv(&funcargv[0]);
+    }
+}
+
 /* validate input, testing for a valid async context
  * returns true if context if valid, otherwise
  * outputs error message and returns false */

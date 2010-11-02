@@ -103,6 +103,7 @@ int start_async_task __ARGS((async_ctx_T *ctx));
 void kill_async_task __ARGS((async_ctx_T *ctx));
 void call_async_callback __ARGS((async_ctx_T *ctx, u_char *name, int argcount, typval_T *argvars));
 int handle_async_events __ARGS((void));
+void async_call_receive __ARGS((async_ctx_T *ctx, char_u *data, int len));
 int async_assert_ctx __ARGS((typval_T *arg));
 typval_T* async_value_from_ctx __ARGS((typval_T *ctx, char_u * key));
 async_ctx_T* find_async_ctx_for_vim_ctx __ARGS((typval_T *arg));
