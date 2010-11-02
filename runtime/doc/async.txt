@@ -161,6 +161,8 @@ async_write({ctx}, {data}, [ {fd} ])
 
 		{data} can be an array of lines, or a string.
 
+		Returns number of bytes (or lines) written.
+
 		Can also be used with this alternative form:
 >
 			ctx.write({string}, [ {fd ])

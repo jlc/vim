@@ -17662,6 +17662,8 @@ f_async_kill (argvars, rettv)
 
 /*
  * "async_write({ctx}, {data}, {fd})" function
+ * {data} can be a string or a list
+ * Returns bytes/lines written.
  */
     static void
 f_async_write (argvars, rettv)
@@ -17670,8 +17672,9 @@ f_async_write (argvars, rettv)
 {
     async_ctx_T *ctx;
     char_u	buf[NUMBUFLEN];
+    list_T	*lines = NULL;
     u_char	*input;
-    size_t	len;
+    size_t	len = 0;
     size_t	written = (size_t)-1;
     int		fd = 0;
 
@@ -17680,9 +17683,22 @@ f_async_write (argvars, rettv)
 	goto done;
     }
 
-    input = get_tv_string_buf_chk(&argvars[1], buf);
-    if (!input) {
-	EMSG(_("E999: async: getting input failed"));
+    switch (argvars[1].v_type) {
+    case VAR_STRING:
+	input = get_tv_string_buf_chk(&argvars[1], buf);
+	if (!input) {
+	    EMSG(_("E999: async_write: getting input failed"));
+	    goto done;
+	}
+	len = STRLEN(input);
+	break;
+    case VAR_LIST:
+	/* TODO: fix me */
+	lines = argvars[1].vval.v_list;
+	EMSG(_("E999: async_write doesn't take list yet"));
+	goto done;
+    default:
+	EMSG(_("E999: async_write expecting string or List for 2nd argument"));
 	goto done;
     }
 
@@ -17698,8 +17714,16 @@ f_async_write (argvars, rettv)
 	}
     }
 
-    len = STRLEN(input);
-    // TODO: this has to be wrapped in a mch function since we cannot assume
+#if 0
+    if (lines) {
+	... for each entery ...
+	    ... convert into string ...
+	    ... write it ...
+    } else {
+	... write the buffer ...
+    }
+#endif
+    // TODO: write() has to be wrapped in a mch function since we cannot assume
     //       that all platforms will have simple posix semantics here
     written = write(ctx->fd_pipe_toshell, input, len);
     if (written != len)
