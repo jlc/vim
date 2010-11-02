@@ -125,8 +125,6 @@ async_exec({ctx})
 				handler, or to the |async_read()|
 				function, to be split into lines.
 
-				NOTE: this is on the TODO list.
-
 		Finally, the following keys are reserved and generated
 		automatically by the async mechanism.  They should not
 		be used by vimL scripts.
@@ -229,8 +227,6 @@ random notes:
 5. TODO							*async-todo*
 
 TODO:
-  - implement 'aslines' feature
-
   - implement blocking async_read()
 
   - fix gui and non gui version (by introducing mzscheme like timers)

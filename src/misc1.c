@@ -10403,6 +10403,11 @@ free_async_ctx(ctx)
 	    ctx->cmd = NULL;
 	}
 
+	if (ctx->linefrag) {
+	    vim_free(ctx->linefrag);
+	    ctx->linefrag = NULL;
+	}
+
 	if (!ctx->tv_dict.v_lock)
 	    clear_tv(&ctx->tv_dict);
 
@@ -10592,6 +10597,107 @@ find_async_ctx_for_vim_ctx(arg)
     /* use format and add pid? */
     EMSG(_("E999: async: process for pid not found. Has it died?"));
     return NULL;
+}
+
+    list_T*
+prepare_async_data_list(ctx, data, len)
+    async_ctx_T	*ctx;
+    char_u	*data;
+    int		len;
+{
+    list_T *l = NULL;
+
+    if (len == 0) {
+	/* this happens when the task is finished,
+	 * we are to flush the pending buffer. */
+
+	if (!ctx->linefrag)
+	    return NULL;
+
+	l = list_alloc();
+	if (l == NULL)
+	    return NULL;
+
+	if (list_append_string(l, ctx->linefrag, 0) == FAIL) {
+	    list_free(l,0);
+	    return NULL;
+	}
+
+	vim_free(ctx->linefrag);
+	ctx->linefrag = NULL;
+
+    } else {
+	char_u *s, *p, *e;
+	unsigned count = 0;
+
+	l = list_alloc();
+	if (l == NULL)
+	    return NULL;
+
+	s = data;     /* start of line */
+	e = data+len; /* end of buffer */
+	while (s < e) {
+	    p = s;    /* end of line */
+	    while (s<e && *p && *p != NL)
+		p++;
+
+	    if (p==e) {
+		if (ctx->linefrag) {
+		    /* add to existing incomplete line */
+		    int olen = STRLEN(ctx->linefrag);
+		    char_u *nlf = vim_strnsave(ctx->linefrag,
+			    olen + (p-s) + 1);
+		    if (!nlf) {
+			list_free(l,0);
+			return NULL;
+		    }
+		    vim_free(ctx->linefrag);
+		    STRNCPY(nlf + olen, s, p-s);
+		    ctx->linefrag = nlf;
+		} else {
+		    /* store incomplete line */
+		    ctx->linefrag = vim_strnsave(s, p-s);
+		    if (!ctx->linefrag) {
+			list_free(l,0);
+			return NULL;
+		    }
+		}
+		break;
+	    }
+
+	    if (ctx->linefrag) {
+		/* we have a partial line left over from last run */
+		int olen = STRLEN(ctx->linefrag);
+		char_u *line = vim_strnsave(ctx->linefrag,
+			olen + (p-s) + 1);
+		if (!line) {
+		    list_free(l,0);
+		    return NULL;
+		}
+		STRNCPY(line + olen, s, p-s);
+		if (list_append_string(l, line, olen + p-s) == FAIL) {
+		    list_free(l,0);
+		    return NULL;
+		}
+		count ++;
+		vim_free(ctx->linefrag);
+		ctx->linefrag = NULL;
+		count ++;
+
+	    } else {
+		/* this is a complete line */
+		if (list_append_string(l, s, p-s) == FAIL) {
+		    list_free(l,0);
+		    return NULL;
+		}
+		count ++;
+	    }
+
+	    s = p + 1; /* advance to after the NL */
+	}
+    }
+
+    return l;
 }
 
 #endif

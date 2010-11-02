@@ -2505,6 +2505,7 @@ typedef struct _async_ctx {
     int		fd_pipe_fromshell;  /* fd reading from process */
     int		fd_pipe_toshell;    /* fd for writing to STDIN of process */
     unsigned	events;             /* collection of ACE_* flags */
+    char_u	*linefrag;          /* partial line when using ACF_LINELIST */
 #ifdef FEAT_GUI
     long	gdk_input_tag;      /* used for gdk_input_remove(), not used if -1L */
 #endif

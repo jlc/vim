@@ -106,6 +106,7 @@ int handle_async_events __ARGS((void));
 int async_assert_ctx __ARGS((typval_T *arg));
 typval_T* async_value_from_ctx __ARGS((typval_T *ctx, char_u * key));
 async_ctx_T* find_async_ctx_for_vim_ctx __ARGS((typval_T *arg));
+list_T* prepare_async_data_list __ARGS((async_ctx_T *ctx, char_u *data, int len));
 #endif
 #if HAVE_ASYNC_SHELL
 void async_task_list_add __ARGS((async_ctx_T *ctx));

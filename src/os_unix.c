@@ -4978,14 +4978,34 @@ async_call_receive(ctx, data, len)
 # endif
 #endif
 
-    /* prepare argument. If flag ACF_LINELIST (aslines) is set pass a list */
+    /* first arg is the data */
+    if (ctx->flags & ACF_LINELIST) {
+	/* we will return a list of lines */
+	list_T *l;
 
-    funcargv[0].v_type = VAR_STRING;
-    funcargv[0].vval.v_string = data;
+	l = prepare_async_data_list(ctx, data, len);
+	if (l == NULL)
+	    return;
+
+	++l->lv_refcount;
+	funcargv[0].v_type = VAR_LIST;
+	funcargv[0].vval.v_list = l;
+
+    } else {
+	/* we return everything in one vimL string */
+	funcargv[0].v_type = VAR_STRING;
+	funcargv[0].vval.v_string = data;
+    }
+
+    /* second arg is the file descriptor */
     funcargv[1].v_type = VAR_NUMBER;
     funcargv[1].vval.v_number = 1; // TODO: split stdin and stdout
 
     call_async_callback(ctx, (char_u*)"receive", 2, &funcargv[0]);
+
+    if (funcargv[0].v_type == VAR_LIST) {
+	clear_tv(&funcargv[0]);
+    }
 }
 
     static void
@@ -5006,9 +5026,11 @@ handle_one_async_task (ctx)
 	    /* failed to read, or got to the end */
 	    terminate = 1;
 
-	} else {
-	    // pass read bytes to callback
+	} else
 	    buf[len] = 0;
+
+	if (len > 0 || ctx->linefrag) {
+	    // pass read bytes to callback
 	    if (async_value_from_ctx(&ctx->tv_dict, (char_u*)"receive"))
 		async_call_receive(ctx, buf, len);
 	}
