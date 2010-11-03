@@ -2485,6 +2485,7 @@ typedef struct {
  * Async context flags
  */
 #define ACF_LINELIST	1	/* return a list of lines instead of a string buffer */
+#define ACF_OUTTOBUF	2	/* automatically append output to a buffer ctx->bufnr */
 
 /*
  * Async event types
@@ -2506,6 +2507,7 @@ typedef struct _async_ctx {
     int		fd_pipe_toshell;    /* fd for writing to STDIN of process */
     unsigned	events;             /* collection of ACE_* flags */
     char_u	*linefrag;          /* partial line when using ACF_LINELIST */
+    int		bufnr;              /* bufnr for output when using ACF_OUTTOBUF */
 #ifdef FEAT_GUI
     long	gdk_input_tag;      /* used for gdk_input_remove(), not used if -1L */
 #endif

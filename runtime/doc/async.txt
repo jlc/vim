@@ -125,6 +125,15 @@ async_exec({ctx})
 				handler, or to the |async_read()|
 				function, to be split into lines.
 
+			"outtobufnr"			*async:outtobufnr*
+				if set the output of the command will
+				be appended directly to the buffer whose
+				number is stored in the attribute.
+
+				Setting the |async:receive()| as well
+				is undefined, and the effect may change
+				in the future.
+
 		Finally, the following keys are reserved and generated
 		automatically by the async mechanism.  They should not
 		be used by vimL scripts.

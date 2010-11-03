@@ -10560,7 +10560,7 @@ async_call_receive(ctx, data, len)
 #endif
 
     /* first arg is the data */
-    if (ctx->flags & ACF_LINELIST) {
+    if (ctx->flags & (ACF_LINELIST|ACF_OUTTOBUF)) {
 	/* we will return a list of lines */
 	list_T *l;
 
@@ -10578,12 +10578,40 @@ async_call_receive(ctx, data, len)
 	funcargv[0].vval.v_string = data;
     }
 
-    /* second arg is the file descriptor */
-    funcargv[1].v_type = VAR_NUMBER;
-    funcargv[1].vval.v_number = 1; // TODO: split stdin and stdout
+    if (ctx->flags & ACF_OUTTOBUF) {
+	/* we are appending to a buffer, not issuing a callback */
+	buf_T *buf = buflist_findnr(ctx->bufnr);
+	if (buf) {
+	    list_T *l = funcargv[0].vval.v_list;
+	    listitem_T *i;
+	    linenr_T	lnum = buf->b_ml.ml_line_count;
+	    long	lcnt = 0;
 
-    call_async_callback(ctx, (char_u*)"receive", 2, &funcargv[0]);
+	    for (i = l->lv_first; i != NULL; i = i->li_next) {
+		char_u *line;
 
+		/* should be a string, ignore anything else */
+		if (i->li_tv.v_type != VAR_STRING)
+		    continue;
+
+		line = i->li_tv.vval.v_string;
+
+		ml_append_buf(buf, buf->b_ml.ml_line_count, line,
+			STRLEN(line)+1, buf->b_ml.ml_line_count == 1);
+		lcnt ++;
+	    }
+	    changed_lines_buf(buf, lnum, buf->b_ml.ml_line_count, lcnt);
+	    redraw_buf_later(buf, NOT_VALID);
+	}
+    } else {
+	/* second arg is the file descriptor */
+	funcargv[1].v_type = VAR_NUMBER;
+	funcargv[1].vval.v_number = 1; // TODO: split stdin and stdout
+
+	call_async_callback(ctx, (char_u*)"receive", 2, &funcargv[0]);
+    }
+
+    /* cleanup */
     if (funcargv[0].v_type == VAR_LIST) {
 	clear_tv(&funcargv[0]);
     }

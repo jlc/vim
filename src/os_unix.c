@@ -4962,7 +4962,8 @@ handle_one_async_task (ctx)
 
 	if (len > 0 || ctx->linefrag) {
 	    // pass read bytes to callback
-	    if (async_value_from_ctx(&ctx->tv_dict, (char_u*)"receive"))
+	    if (async_value_from_ctx(&ctx->tv_dict, (char_u*)"receive")
+		    || ctx->flags & ACF_OUTTOBUF)
 		async_call_receive(ctx, buf, len);
 	}
     }

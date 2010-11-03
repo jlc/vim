@@ -4720,6 +4720,7 @@ async-functions	async.txt	/*async-functions*
 async-intro	async.txt	/*async-intro*
 async-todo	async.txt	/*async-todo*
 async:aslines	async.txt	/*async:aslines*
+async:outtobufnr	async.txt	/*async:outtobufnr*
 async:pid	async.txt	/*async:pid*
 async:pid	async.txt	/*async:pid*
 async:receive()	async.txt	/*async:receive()*
