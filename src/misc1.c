@@ -10368,8 +10368,7 @@ alloc_async_ctx()
 	return NULL;
 
     ctx->pid = -1;
-    ctx->fd_pipe_fromshell = -1;
-    ctx->fd_pipe_toshell = -1;
+    ctx->fd_master = -1;
 #ifdef FEAT_GUI
     ctx->gdk_input_tag = -1;
 #endif
@@ -10388,14 +10387,9 @@ free_async_ctx(ctx)
 	async_task_list_remove(ctx);
 	async_active_task_list_remove(ctx);
 
-	if (ctx->fd_pipe_fromshell != -1) {
-	    close(ctx->fd_pipe_fromshell);
-	    ctx->fd_pipe_fromshell = -1;
-	}
-
-	if (ctx->fd_pipe_toshell != -1) {
-	    close(ctx->fd_pipe_toshell);
-	    ctx->fd_pipe_toshell = -1;
+	if (ctx->fd_master != -1) {
+	    close(ctx->fd_master);
+	    ctx->fd_master = -1;
 	}
 
 	if (ctx->cmd) {
@@ -10411,7 +10405,9 @@ free_async_ctx(ctx)
 	if (!ctx->tv_dict.v_lock)
 	    clear_tv(&ctx->tv_dict);
 
+#ifdef FEAT_GUI_GTK
 	gui_mch_unregister_async_task(ctx);
+#endif
 
 	vim_free(ctx);
     }

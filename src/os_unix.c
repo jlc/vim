@@ -4838,97 +4838,216 @@ mch_start_async_shell(ctx)
     char_u	*newcmd = NULL;
     char	**argv = NULL;
     int		argc = 0;
-    int		fd_fromshell[2];
-    int		fd_toshell[2];
-    int		pipe_error = FALSE;
     int		flags;
+    int         fdm, fds;
+    struct termios term_slave_old;
+    struct termios term_slave;
+    int         p_sync[2], p_sync2[2], p_status[2]; //p_term[2];
+    char        sync_byte;
+    int         child_errno;
+    int         ret;
+
+#define close_p_sync() \
+    close(p_sync[0]); close(p_sync[1]);
+#define close_p_sync2() \
+    close(p_sync2[0]); close(p_sync2[1]);
+#define close_p_status() \
+    close(p_status[0]); close(p_status[1]);
+#define close_pipes() \
+    close_p_sync(); close_p_sync2(); close_p_status();
+#define free_strs() \
+    vim_free(newcmd); vim_free(argv);
 
     newcmd = vim_strsave(p_sh);
     if (newcmd == NULL)		/* out of memory */
-	goto error_newcmd;
+        return -1;
 
     if (!build_argv(newcmd, ctx->cmd, &argc, &argv)) {
-	MSG_PUTS(_("\nCannot build argument list\n"));
-	goto error_build_argv;
+	EMSG(_("E999: Async: Cannot build argument list"));
+        vim_free(newcmd);
+        return -1;
     }
 
-    // create communication pipes:
-    pipe_error = (pipe(fd_fromshell) < 0);
-    if (pipe_error) {
-	MSG_PUTS(_("\nCannot create pipe\n"));
-	goto error_from_pipe;
+    // create communication pipes based on expect (http://expect.nist.gov/)
+    // 2 for synchronization, 1 for status
+
+    if (pipe(p_sync) < 0) {
+        EMSG(_("E999: Async: Cannot create pipe"));
+        free_strs();
+        return -1;
+    }
+    if (pipe(p_sync2) < 0) {
+        EMSG(_("E999: Async: Cannot create pipe"));
+        free_strs(); close_p_sync();
+        return -1;
+    }
+    if (pipe(p_status) < 0) {
+        EMSG(_("E999: Async: Cannot create pipe"));
+        free_strs(); close_p_sync(); close_p_sync2();
+        return -1;
     }
 
-    pipe_error = (pipe(fd_toshell) < 0);
-    if (pipe_error) {
-	MSG_PUTS(_("\nCannot create pipe\n"));
-	goto error_to_pipe;
+    // create and setup pty
+ 
+    if ((fdm = posix_openpt(O_RDWR)) < 0) {
+        EMSG(_("E999: Async: Cannot open pseudo-terminal"));
+        free_strs(); close_pipes();
+        return -1;
     }
+
+    if (grantpt(fdm) < 0) {
+        EMSG(_("E999: Async: Cannot grantpt pseudo-terminal"));
+        close(fdm); free_strs(); close_pipes();
+        return -1;
+    }
+
+    if (unlockpt(fdm) < 0) {
+        EMSG(_("E999: Async: Cannot unlockpt psuedo-terminal"));
+        close(fdm); free_strs(); close_pipes();
+        return -1;
+    }
+
+    if ((fds = open(ptsname(fdm), O_RDWR)) < 0) {
+        EMSG(_("E999: Async: Cannot open slave pseudo-terminal"));
+        close(fdm); free_strs(); close_pipes();
+        return -1;
+    }
+
+    // fork
 
     pid = fork();
     if (pid == -1) {
-	MSG_PUTS(_("\nCannot fork\n"));
-	goto error_fork;
+	EMSG(_("E999: Async Cannot fork"));
+        close(fdm); free_strs(); close_pipes();
+        return -1;
 
-    } else if (pid == 0) { /* child */
-	reset_signals();		/* handle signals normally */
+    } else if (pid == 0) {
+        /* child */
 
-	simulate_dumb_terminal();
+	reset_signals(); // handle signals normally
 
-	/* set up stdin for the child */
-	close(fd_toshell[1]);
-	close(0);
-	ignored = dup(fd_toshell[0]);
-	close(fd_toshell[0]);
+        // close unused descriptors
+        close(fdm);
 
-	/* set up stdout/stderr for the child */
-	close(fd_fromshell[0]);
-	close(1);
-	ignored = dup(fd_fromshell[1]);
-	close(2);
-	ignored = dup(fd_fromshell[1]);
-	close(fd_fromshell[1]);
+        close(p_sync[0]);
+        close(p_sync2[1]);
+        close(p_status[0]);
 
+        fcntl(p_status[1], F_SETFD, 1); // close-on-exec
+
+        // setup slave pty: save default param and set RAW mode
+        tcgetattr(fds, &term_slave_old); 
+        term_slave = term_slave_old;
+        cfmakeraw(&term_slave);
+        tcsetattr(fds, TCSANOW, &term_slave);
+
+        // redirect stdin/stdout/stderr to slave pty
+        close(0); close(1); close(2);
+        dup(fds); dup(fds); dup(fds);
+        close(fds); // not needed anymore
+
+        // get our own session, and set this terminal as the one controlling the process
+        setsid();
+        ioctl(0, TIOCSCTTY, 1);
+
+        // shake-hand with dad
+        if (write(p_sync[1], " ", 1) != 1) {
+            write(p_status[1], &errno, sizeof(errno));
+            close(p_status[1]);
+            _exit(EXEC_FAILED);
+        }
+        close(p_sync[1]);
+
+        if (read(p_sync2[0], &sync_byte, 1) != 1) {
+            write(p_status[1], &errno, sizeof(errno));
+            close(p_status[1]);
+            _exit(EXEC_FAILED);
+        }
+        close(p_sync2[0]);
+
+        // just do it
 	execvp(argv[0], argv);
-	_exit(EXEC_FAILED);	    /* exec failed, return failure code */
+
+        // oops... clean then.
+        write(p_status[1], &errno, sizeof(errno));
+        close(p_status[1]);
+	_exit(EXEC_FAILED);
+
+        return -1;
     }
 
     /* parent */
+  
+    // close unused descriptors
+    close(fds);
 
-    close(fd_fromshell[1]);
-    ctx->fd_pipe_fromshell = fd_fromshell[0];
-    close(fd_toshell[0]);
-    ctx->fd_pipe_toshell = fd_toshell[1];
+    close(p_sync[1]);
+    close(p_sync2[0]);
+    close(p_status[1]);
 
-    /* make it non blocking */
+    // shake-hand with child
+    if (read(p_sync[0], &sync_byte, 1) != 1) {
+        EMSG(_("E999: Error while synchronizing child process"));
+    }
+    if (write(p_sync2[1], " ", 1) != 1) {
+        EMSG(_("E999: Error while synchronizing child process"));
+    }
+    close(p_sync[0]);
+    close(p_sync[1]);
+ 
+    // read even if we got interupted
+    while( ((ret = read(p_status[0], &child_errno, sizeof(errno))) == -1) && (errno == EINTR) ) {}
+    close(p_status[0]);
+
+    switch(ret) {
+        case -1:
+            EMSG(_("E999: Error while reading child status"));
+            child_errno = errno;
+            break;
+        case 0:
+            // status pipe has been closed-on-exec, good
+            child_errno = 0;
+            break;
+        default:
+            // got an error
+            EMSG(_("E999: Error while starting child process"));
+            waitpid(pid, NULL, 0);
+            errno = child_errno;
+            break;
+    }
+
+    if (child_errno == 0) {
+
+        ctx->fd_master = fdm;
+
+        /* make it non blocking */
 #if defined(O_NONBLOCK)
-    /* Fixme: O_NONBLOCK is defined but broken on SunOS 4.1.x and AIX 3.2.5. */
-    if (-1 == (flags = fcntl(ctx->fd_pipe_fromshell, F_GETFL, 0)))
-	flags = 0;
-    fcntl(ctx->fd_pipe_fromshell, F_SETFL, flags | O_NONBLOCK);
+        /* Fixme: O_NONBLOCK is defined but broken on SunOS 4.1.x and AIX 3.2.5. */
+        if (-1 == (flags = fcntl(ctx->fd_master, F_GETFL, 0)))
+            flags = 0;
+        fcntl(ctx->fd_master, F_SETFL, flags | O_NONBLOCK);
 #else
-    /* Otherwise, use the old way of doing it */
-    flags = 1;
-    ioctl(ctx->fd_pipe_fromshell, FIOBIO, &flags);
+        /* Otherwise, use the old way of doing it */
+        flags = 1;
+        ioctl(ctx->fd_master, FIOBIO, &flags);
 #endif
 
-    ctx->pid = pid;
-    async_task_list_add(ctx);
+        ctx->pid = pid;
+        async_task_list_add(ctx);
 
-    return pid;
+        ret = pid;
+    }
+    else {
+        close(fdm);
 
-error_fork:
-	close(fd_fromshell[0]);
-	close(fd_fromshell[1]);
-error_to_pipe:
-	close(fd_toshell[0]);
-	close(fd_toshell[1]);
-error_from_pipe:
-    vim_free(argv);
-error_build_argv:
-    vim_free(newcmd);
-error_newcmd:
-    return -1;
+        ctx->fd_master = -1;
+
+        ret = -1;
+    }
+
+    free_strs();
+
+    return ret;
 }
 
     void
@@ -4946,13 +5065,13 @@ handle_one_async_task (ctx)
 #define BUF_SIZE 4096
     char_u buf[BUF_SIZE + 1];
     int len, rc, status;
-    int terminate = (ctx->events & ACE_TERM);
+    int terminate = 0;
 
     if (!ctx->events)
 	return;
 
     if (ctx->events & ACE_READ) {
-	len = read(ctx->fd_pipe_fromshell, buf, BUF_SIZE);
+	len = read(ctx->fd_master, buf, BUF_SIZE);
 	if (len <= 0) {
 	    /* failed to read, or got to the end */
 	    terminate = 1;
@@ -5158,6 +5277,9 @@ RealWaitForChar(fd, msec, check_for_gpm)
 #  ifdef FEAT_MZSCHEME
 	(mzthreads_allowed() && p_mzq > 0)
 #  endif
+# if !defined(FEAT_XCLIPBOARD) && !defined(USE_XSMP) && !defined(FEAT_MZSCHEME)
+        true
+# endif
 	    ))
 	gettimeofday(&start_tv, NULL);
 # endif
@@ -5268,7 +5390,7 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	for (actx=async_task_list_head(); actx; actx=actx->next) {
 	    if (async_idx == -1)
 		async_idx = nfd;
-	    fds[nfd].fd = actx->fd_pipe_fromshell;
+	    fds[nfd].fd = actx->fd_master;
 	    fds[nfd].events = POLLIN;
 	    nfd++;
 	}
@@ -5444,10 +5566,9 @@ select_eintr:
 #endif
 #if HAVE_ASYNC_SHELL
 	for (actx=async_task_list_head(); actx; actx=actx->all_next) {
-	    FD_SET(actx->fd_pipe_fromshell, &rfds);
-	    FD_SET(actx->fd_pipe_fromshell, &efds);
-	    if (maxfd < actx->fd_pipe_fromshell)
-		maxfd = actx->fd_pipe_fromshell;
+	    FD_SET(actx->fd_master, &rfds);
+	    if (maxfd < actx->fd_master)
+		maxfd = actx->fd_master;
 	}
 #endif
 
@@ -5551,13 +5672,11 @@ select_eintr:
 #endif
 #if HAVE_ASYNC_SHELL
 	for (actx=async_task_list_head(); ret>0 && actx; actx=actx->all_next) {
-	    int rd = FD_ISSET(actx->fd_pipe_fromshell, &rfds);
-	    int ex = FD_ISSET(actx->fd_pipe_fromshell, &efds);
+	    int rd = FD_ISSET(actx->fd_master, &rfds);
+            // TODO: if-if here because we used to test er: to clean
 	    if (rd)
 		actx->events |= ACE_READ;
-	    if (ex)
-		actx->events |= ACE_TERM;
-	    if (rd || ex) {
+	    if (rd ) {
 		async_active_task_list_add(actx);
 		if (--ret == 0)
 		    finished = FALSE;	/* Try again */

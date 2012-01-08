@@ -17683,13 +17683,16 @@ f_async_write (argvars, rettv)
     typval_T	*argvars;
     typval_T	*rettv;
 {
-    async_ctx_T *ctx;
+    async_ctx_T *ctx = NULL;
     char_u	buf[NUMBUFLEN];
     list_T	*lines = NULL;
-    u_char	*input;
+    listitem_T	*li = NULL;
+    u_char	*input = NULL;
+    u_char      *newline = "\n";
     size_t	len = 0;
     size_t	written = (size_t)-1;
     int		fd = 0;
+    int         error = FALSE;
 
     ctx = find_async_ctx_for_vim_ctx(&argvars[0]);
     if (!ctx) {
@@ -17706,41 +17709,56 @@ f_async_write (argvars, rettv)
 	len = STRLEN(input);
 	break;
     case VAR_LIST:
-	/* TODO: fix me */
 	lines = argvars[1].vval.v_list;
-	EMSG(_("E999: async_write doesn't take list yet"));
-	goto done;
+        break;
     default:
-	EMSG(_("E999: async_write expecting string or List for 2nd argument"));
+	EMSG(_("E999: async_write: expecting string or List for 2nd argument"));
 	goto done;
     }
 
     if (argvars[2].v_type != VAR_UNKNOWN) {
-	int error = FALSE;
+        error = FALSE;
 	fd = get_tv_number_chk(&argvars[2], &error);
-	if (error)
+	if (error) {
+            EMSG(_("E999: async_write: error while converting 2nd argument to number"));
 	    goto done;
+        }
 	/* FIXME: should support other fd's at some point */
 	if (fd != 0) {
-	    EMSG(_("E999: async_write only support fd==0 "));
+	    EMSG(_("E999: async_write: only support stdin (fd==0)"));
 	    goto done;
 	}
     }
 
-#if 0
-    if (lines) {
-	... for each entery ...
-	    ... convert into string ...
-	    ... write it ...
-    } else {
-	... write the buffer ...
-    }
-#endif
     // TODO: write() has to be wrapped in a mch function since we cannot assume
     //       that all platforms will have simple posix semantics here
-    written = write(ctx->fd_pipe_toshell, input, len);
-    if (written != len)
-	EMSG(_("E999: async: failed writing all bytes"));
+    if (lines) {
+        for (li = lines->lv_first; li != NULL; li = li->li_next) {
+            if (li->li_tv.v_type != VAR_STRING) {
+                EMSG(_("E999: async_write: list item is not a string"));
+            } else {
+                input = get_tv_string_buf_chk(&li->li_tv, buf);
+                if (!input) {
+                    EMSG(_("E999: async_write: getting list item as string failed"));
+                    goto done;
+                }
+                len = STRLEN(input);
+                written = write(ctx->fd_master, input, len);
+                if (written != len)
+                    EMSG(_("E999: async_write: failed writing all bytes"));
+                written = write(ctx->fd_master, newline, 1);
+                if (written != 1)
+                    EMSG(_("E999: async_write: failed writing all bytes"));
+            }
+        }
+    } else {
+        written = write(ctx->fd_master, input, len);
+        if (written != len)
+            EMSG(_("E999: async: failed writing all bytes"));
+        written = write(ctx->fd_master, newline, 1);
+        if (written != 1)
+            EMSG(_("E999: async_write: failed writing all bytes"));
+    }
 
 done:
     rettv->v_type = VAR_NUMBER;

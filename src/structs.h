@@ -2503,8 +2503,7 @@ typedef struct _async_ctx {
     unsigned	flags;              /* collection of ACF_* flags */
     typval_T    tv_dict;            /* vimscript context for func */
     int		pid;                /* async process ID */
-    int		fd_pipe_fromshell;  /* fd reading from process */
-    int		fd_pipe_toshell;    /* fd for writing to STDIN of process */
+    int         fd_master;          /* fd read/write to/from process */
     unsigned	events;             /* collection of ACE_* flags */
     char_u	*linefrag;          /* partial line when using ACF_LINELIST */
     int		bufnr;              /* bufnr for output when using ACF_OUTTOBUF */
