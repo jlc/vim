@@ -17674,6 +17674,35 @@ f_async_kill (argvars, rettv)
 }
 
 /*
+ * async_write_helper({pty}, {data}, {len}) function
+ * call write() as many time as needed to write all data (except on error)
+ */
+// TODO: write() has to be wrapped in a mch function since we cannot assume
+//       that all platforms will have simple posix semantics here
+int
+async_write_helper (pty, data, len)
+    int         pty;
+    u_char      *data;
+    size_t      len;
+{
+    size_t      block = 0, written = 0;
+    u_char      *d = data;
+
+    while (d < data + len) {
+        block = (data + len) - d;
+
+        written = write(pty, d, block);
+        if (written < 0) {
+            EMSG3(_("E999: failed writing to child process (%d - %s)"), errno, strerror(errno));
+            break;
+        }
+        d += written;
+    }
+
+    return d - data;
+}
+
+/*
  * "async_write({ctx}, {data}, {fd})" function
  * {data} can be a string or a list
  * Returns bytes/lines written.
@@ -17730,8 +17759,6 @@ f_async_write (argvars, rettv)
 	}
     }
 
-    // TODO: write() has to be wrapped in a mch function since we cannot assume
-    //       that all platforms will have simple posix semantics here
     if (lines) {
         for (li = lines->lv_first; li != NULL; li = li->li_next) {
             if (li->li_tv.v_type != VAR_STRING) {
@@ -17743,21 +17770,13 @@ f_async_write (argvars, rettv)
                     goto done;
                 }
                 len = STRLEN(input);
-                written = write(ctx->fd_master, input, len);
-                if (written != len)
-                    EMSG(_("E999: async_write: failed writing all bytes"));
-                written = write(ctx->fd_master, newline, 1);
-                if (written != 1)
-                    EMSG(_("E999: async_write: failed writing all bytes"));
+                if (async_write_helper(ctx->fd_master, input, len) != len)
+                    EMSG(_("E999: async_write: failed writing all bytes of input (list)"));
             }
         }
     } else {
-        written = write(ctx->fd_master, input, len);
-        if (written != len)
-            EMSG(_("E999: async: failed writing all bytes"));
-        written = write(ctx->fd_master, newline, 1);
-        if (written != 1)
-            EMSG(_("E999: async_write: failed writing all bytes"));
+        if (async_write_helper(ctx->fd_master, input, len) != len)
+            EMSG(_("E999: async_write: failed writing all bytes of input (string)"));
     }
 
 done:
