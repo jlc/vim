@@ -3753,104 +3753,175 @@ wait4pid(child, status)
     return wait_pid;
 }
 
-    static int
-build_argv(newsh, cmd, out_argc, out_argv)
-    char_u	*newsh;
-    const char_u *cmd;
-    int		*out_argc;
-    char	***out_argv;
-{
-    int		i;
-    char_u	*p;
-    int		inquote;
-    int		argc = 0;
-    char	**argv = NULL;
-    int		res = FAIL;
-    char_u	*p_shcf_copy = NULL;
 
-    /*
-     * Do this loop twice:
-     * 1: find number of arguments
-     * 2: separate them and build argv[]
-     */
-    for (i = 0; i < 2; ++i)
+/*
+ * jlc: this is a copy of the 7.3 version - bartman/async
+ *
+ * TODO: find why it works on macosx but not linux. remerge properly.
+ */
+        static int
+    build_argv(newsh, cmd, out_argc, out_argv)
+        char_u	*newsh;
+        const char_u *cmd;
+        int		*out_argc;
+        char	***out_argv;
     {
-	p = newsh;
-	inquote = FALSE;
-	argc = 0;
-	for (;;)
-	{
-	    if (i == 1)
-		argv[argc] = (char *)p;
-	    ++argc;
-	    while (*p && (inquote || (*p != ' ' && *p != TAB)))
-	    {
-		if (*p == '"')
-		    inquote = !inquote;
-		++p;
-	    }
-	    if (*p == NUL)
-		break;
-	    if (i == 1)
-		*p++ = NUL;
-	    p = skipwhite(p);
-	}
-	if (argv == NULL)
-	{
-	    /*
-	     * Account for possible multiple args in p_shcf.
-	     */
-	    p = p_shcf;
-	    for (;;)
-	    {
-		p = skiptowhite(p);
-		if (*p == NUL)
-		    break;
-		++argc;
-		p = skipwhite(p);
-	    }
+        int		i;
+        char_u	*p;
+        int		inquote;
+        int		argc = 0;
+        char	**argv = NULL;
+        int		res = FAIL;
 
-	    argv = (char **)alloc((unsigned)((argc + 4) * sizeof(char *)));
-	    if (argv == NULL)	    /* out of memory */
-		goto bail;
-	}
+        /*
+         * Do this loop twice:
+         * 1: find number of arguments
+         * 2: separate them and build argv[]
+         */
+        for (i = 0; i < 2; ++i)
+        {
+            p = newsh;
+            inquote = FALSE;
+            argc = 0;
+            for (;;)
+            {
+                if (i == 1)
+                    argv[argc] = (char *)p;
+                ++argc;
+                while (*p && (inquote || (*p != ' ' && *p != TAB)))
+                {
+                    if (*p == '"')
+                        inquote = !inquote;
+                    ++p;
+                }
+                if (*p == NUL)
+                    break;
+                if (i == 1)
+                    *p++ = NUL;
+                p = skipwhite(p);
+            }
+            if (argv == NULL)
+            {
+                argv = (char **)alloc((unsigned)((argc + 4) * sizeof(char *)));
+                if (argv == NULL)	    /* out of memory */
+                    goto bail;
+            }
+        }
+        if (cmd != NULL)
+        {
+            if (extra_shell_arg != NULL)
+                argv[argc++] = (char *)extra_shell_arg;
+            argv[argc++] = (char *)p_shcf;
+            argv[argc++] = (char *)cmd;
+        }
+        argv[argc] = NULL;
+
+        res = OK;
+        // fall through expected
+    bail:
+        *out_argc = argc;
+        *out_argv = argv;
+        return res;
     }
-    if (cmd != NULL)
-    {
-	char_u	*s;
 
-	if (extra_shell_arg != NULL)
-	    argv[argc++] = (char *)extra_shell_arg;
-
-	/* Break 'shellcmdflag' into white separated parts.  This doesn't
-	 * handle quoted strings, they are very unlikely to appear. */
-	p_shcf_copy = alloc((unsigned)STRLEN(p_shcf) + 1);
-	if (p_shcf_copy == NULL)    /* out of memory */
-	    goto bail;
-	s = p_shcf_copy;
-	p = p_shcf;
-	while (*p != NUL)
-	{
-	    argv[argc++] = (char *)s;
-	    while (*p && *p != ' ' && *p != TAB)
-		*s++ = *p++;
-	    *s++ = NUL;
-	    p = skipwhite(p);
-	}
-
-	argv[argc++] = (char *)cmd;
-    }
-    argv[argc] = NULL;
-
-    vim_free(p_shcf_copy);
-
-    res = OK;
-    // fall through expected
-bail:
-    *out_argc = argc;
-    *out_argv = argv;
-    return res;
-}
+//    static int
+//build_argv(newsh, cmd, out_argc, out_argv)
+//    char_u	*newsh;
+//    const char_u *cmd;
+//    int		*out_argc;
+//    char	***out_argv;
+//{
+//    int		i;
+//    char_u	*p;
+//    int		inquote;
+//    int		argc = 0;
+//    char	**argv = NULL;
+//    int		res = FAIL;
+//    char_u	*p_shcf_copy = NULL;
+//
+//    /*
+//     * Do this loop twice:
+//     * 1: find number of arguments
+//     * 2: separate them and build argv[]
+//     */
+//    for (i = 0; i < 2; ++i)
+//    {
+//	p = newsh;
+//	inquote = FALSE;
+//	argc = 0;
+//	for (;;)
+//	{
+//	    if (i == 1)
+//		argv[argc] = (char *)p;
+//	    ++argc;
+//	    while (*p && (inquote || (*p != ' ' && *p != TAB)))
+//	    {
+//		if (*p == '"')
+//		    inquote = !inquote;
+//		++p;
+//	    }
+//	    if (*p == NUL)
+//		break;
+//	    if (i == 1)
+//		*p++ = NUL;
+//	    p = skipwhite(p);
+//	}
+//	if (argv == NULL)
+//	{
+//	    /*
+//	     * Account for possible multiple args in p_shcf.
+//	     */
+//	    p = p_shcf;
+//	    for (;;)
+//	    {
+//		p = skiptowhite(p);
+//		if (*p == NUL)
+//		    break;
+//		++argc;
+//		p = skipwhite(p);
+//	    }
+//
+//	    argv = (char **)alloc((unsigned)((argc + 4) * sizeof(char *)));
+//	    if (argv == NULL)	    /* out of memory */
+//		goto bail;
+//	}
+//    }
+//    if (cmd != NULL)
+//    {
+//	char_u	*s;
+//
+//	if (extra_shell_arg != NULL)
+//	    argv[argc++] = (char *)extra_shell_arg;
+//
+//	/* Break 'shellcmdflag' into white separated parts.  This doesn't
+//	 * handle quoted strings, they are very unlikely to appear. */
+//	p_shcf_copy = alloc((unsigned)STRLEN(p_shcf) + 1);
+//	if (p_shcf_copy == NULL)    /* out of memory */
+//	    goto bail;
+//	s = p_shcf_copy;
+//	p = p_shcf;
+//	while (*p != NUL)
+//	{
+//	    argv[argc++] = (char *)s;
+//	    while (*p && *p != ' ' && *p != TAB)
+//		*s++ = *p++;
+//	    *s++ = NUL;
+//	    p = skipwhite(p);
+//	}
+//
+//	argv[argc++] = (char *)cmd;
+//    }
+//    argv[argc] = NULL;
+//
+//    vim_free(p_shcf_copy);
+//
+//    res = OK;
+//    // fall through expected
+//bail:
+//    *out_argc = argc;
+//    *out_argv = argv;
+//    return res;
+//}
 
     static void
 simulate_dumb_terminal()
@@ -4825,6 +4896,93 @@ error:
 #endif /* USE_SYSTEM */
 }
 
+/*
+ * pseudoterminals Unix 98
+ *
+ */
+    int
+mch_posix_openpt(oflag)
+    int oflag;
+{
+#if defined( linux )
+    int     fdm;
+
+    fdm = open("/dev/ptmx", oflag);
+    return(fdm);
+#else
+    return posix_openpt(oflag);
+#endif
+}
+
+    char *
+mch_ptsname(fdm)
+    int fdm;
+{
+#if defined( linux )
+    int sminor = 0;
+    static char pts_name[32];
+    
+    if (ioctl(fdm, TIOCGPTN, &sminor) < 0)
+        return NULL;
+
+    snprintf(pts_name, sizeof(pts_name), "/dev/pts/%d", sminor);
+    return pts_name;
+#else
+    return ptsname(fdm);
+#endif
+}
+
+    int
+mch_grantpt(fdm)
+    int fdm;
+{
+#if defined( linux )
+    char *pts_name;
+
+    pts_name = mch_ptsname(fdm);
+    return chmod(pts_name, S_IRUSR | S_IWUSR | S_IWGRP);
+#else
+    return grantpt(fdm);
+#endif
+}
+
+    int
+mch_unlockpt(fdm)
+    int fdm;
+{
+#if defined( linux )
+    int lock = 0;
+
+    return ioctl(fdm, TIOCSPTLCK, &lock);
+#else
+    return unlockpt(fdm);
+#endif
+}
+
+//static int logfd = 0;
+//
+//int openlog() {
+//    logfd = open("./the.vim.log", O_APPEND|O_CREAT|O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+//    if (logfd < 0) {
+//        char themsg[4096];
+//        sprintf(themsg, "Unable to open log: %s", strerror(errno));
+//        EMSG(_(themsg));
+//        return -1;
+//    }
+//    return 0;
+//}
+//
+//int writelog(char *msg) {
+//    int ret = write(logfd, msg, strlen(msg));
+//    fflush(NULL);
+//    return ret;
+//}
+//
+//void closelog() {
+//    close(logfd);
+//}
+
+
 #ifdef FEAT_ASYNC
 /*
  * Start new async task.  ctx->callback will be called with data.
@@ -4846,6 +5004,7 @@ mch_start_async_shell(ctx)
     char        sync_byte;
     int         child_errno;
     int         ret;
+    char        *pname;
 
 #define close_p_sync() \
     close(p_sync[0]); close(p_sync[1]);
@@ -4889,42 +5048,47 @@ mch_start_async_shell(ctx)
 
     // create and setup pty
  
-    if ((fdm = posix_openpt(O_RDWR)) < 0) {
+    if ((fdm = mch_posix_openpt(O_RDWR)) < 0) {
         EMSG(_("E999: Async: Cannot open pseudo-terminal"));
         free_strs(); close_pipes();
         return -1;
     }
 
-    if (grantpt(fdm) < 0) {
+    if (mch_grantpt(fdm) < 0) {
         EMSG(_("E999: Async: Cannot grantpt pseudo-terminal"));
         close(fdm); free_strs(); close_pipes();
         return -1;
     }
 
-    if (unlockpt(fdm) < 0) {
+    if (mch_unlockpt(fdm) < 0) {
         EMSG(_("E999: Async: Cannot unlockpt psuedo-terminal"));
         close(fdm); free_strs(); close_pipes();
         return -1;
     }
 
-    if ((fds = open(ptsname(fdm), O_RDWR)) < 0) {
+    if ((pname = mch_ptsname(fdm)) == NULL) {
+        EMSG(_("E999: Async: Cannot get slave device name"));
+        close(fdm); free_strs(); close_pipes();
+        return -1;
+    }
+
+    if ((fds = open(pname, O_RDWR)) < 0) {
         EMSG(_("E999: Async: Cannot open slave pseudo-terminal"));
         close(fdm); free_strs(); close_pipes();
         return -1;
     }
 
     // fork
-
     pid = fork();
     if (pid == -1) {
 	EMSG(_("E999: Async Cannot fork"));
         close(fdm); free_strs(); close_pipes();
         return -1;
 
-    } else if (pid == 0) {
-        /* child */
+    } else if (pid == 0) {          // child
 
-	reset_signals(); // handle signals normally
+        // handle signals normally
+	reset_signals();
 
         // close unused descriptors
         close(fdm);
@@ -4936,30 +5100,33 @@ mch_start_async_shell(ctx)
         fcntl(p_status[1], F_SETFD, 1); // close-on-exec
 
         // setup slave pty: save default param and set RAW mode
-        tcgetattr(fds, &term_slave_old); 
-        term_slave = term_slave_old;
+        tcgetattr(fds, &term_slave); 
         cfmakeraw(&term_slave);
         tcsetattr(fds, TCSANOW, &term_slave);
 
         // redirect stdin/stdout/stderr to slave pty
         close(0); close(1); close(2);
-        dup(fds); dup(fds); dup(fds);
+        ret = dup(fds); ret = dup(fds); ret = dup(fds);
         close(fds); // not needed anymore
 
-        // get our own session, and set this terminal as the one controlling the process
+        // get our own session and process group
         setsid();
+
+        // set the controlling terminal
+#ifdef TIOCSCTTY
         ioctl(0, TIOCSCTTY, 1);
+#endif
 
         // shake-hand with dad
         if (write(p_sync[1], " ", 1) != 1) {
-            write(p_status[1], &errno, sizeof(errno));
+            ret = write(p_status[1], &errno, sizeof(errno));
             close(p_status[1]);
             _exit(EXEC_FAILED);
         }
         close(p_sync[1]);
 
         if (read(p_sync2[0], &sync_byte, 1) != 1) {
-            write(p_status[1], &errno, sizeof(errno));
+            ret = write(p_status[1], &errno, sizeof(errno));
             close(p_status[1]);
             _exit(EXEC_FAILED);
         }
@@ -4969,14 +5136,14 @@ mch_start_async_shell(ctx)
 	execvp(argv[0], argv);
 
         // oops... clean then.
-        write(p_status[1], &errno, sizeof(errno));
+        ret = write(p_status[1], &errno, sizeof(errno));
         close(p_status[1]);
 	_exit(EXEC_FAILED);
 
         return -1;
     }
 
-    /* parent */
+    // parent
   
     // close unused descriptors
     close(fds);
@@ -5278,7 +5445,7 @@ RealWaitForChar(fd, msec, check_for_gpm)
 	(mzthreads_allowed() && p_mzq > 0)
 #  endif
 # if !defined(FEAT_XCLIPBOARD) && !defined(USE_XSMP) && !defined(FEAT_MZSCHEME)
-        true
+        1
 # endif
 	    ))
 	gettimeofday(&start_tv, NULL);
