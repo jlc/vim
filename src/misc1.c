@@ -10483,26 +10483,31 @@ handle_async_events()
     int		count = 0;
 #ifdef HAVE_ASYNC_SHELL
     /* this function is modeled after eval_client_expr_to_string() */
-    int		save_dbl = debug_break_level;
+
+    // NOTE(jlc): enable debug and emsg handling when in order to debug scripts
+    // Check if handling_async_events() can be called from somewhere else where it is safer.
+    // (maybe like eval_client_expr_to_string()?)
+
+    //int		save_dbl = debug_break_level;
     int		save_ro = redir_off;
     int		save_nfi = need_fileinfo;
 
     if (handling_async_events)
 	return 0;
 
-    debug_break_level = -1;
+    //debug_break_level = -1;
     redir_off = 0;
     need_fileinfo = FALSE;
-    ++emsg_skip;
+    //++emsg_skip;
 
     handling_async_events = TRUE;
     count = mch_handle_async_events ();
     handling_async_events = FALSE;
 
-    debug_break_level = save_dbl;
+    //debug_break_level = save_dbl;
     redir_off = save_ro;
     need_fileinfo = save_nfi;
-    --emsg_skip;
+    //--emsg_skip;
 
     /* A client can tell us to redraw, but not to display the cursor, so do
      * that here. */
